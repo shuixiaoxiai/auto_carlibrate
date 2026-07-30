@@ -1,0 +1,45 @@
+# macOS / Windows metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Python caches and environments
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.python-version
+
+# Test and coverage output
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Packaging output
+build/
+dist/
+*.egg-info/
+*.spec
+
+# Runtime logs and generated captures
+logs/
+*.log
+*.blf
+mock_data/
+
+# Local application data
+*.sqlite
+*.sqlite3
+*.db-journal
+*.db-wal
+*.db-shm
+
+# IDE settings
+.idea/
+.vscode/
+*.user
