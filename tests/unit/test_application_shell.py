@@ -10,6 +10,13 @@ from ble_calibration.domain.models import CanFrame
 from ble_calibration.mock.generator import MockConfig, generate_mock_session
 from tools.can_protocol import decode_frame as compatibility_decode_frame
 from ble_calibration.can.protocol import decode_frame as canonical_decode_frame
+from tools.parse_cloud import parse_cloud
+
+SAMPLE_CLOUD_HEX = (
+    "00C2C7CABEC1BEC4C6BBBE0332143C1E37282828285F50505050000000002D14141B1B0100"
+    "30B029FFFF0000001A4644442B03000300001C4400000D059908535914143211000000000000"
+    "002333000000221D9C9C00"
+)
 
 
 class ApplicationShellTests(unittest.TestCase):
@@ -97,6 +104,33 @@ class ApplicationShellTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(summary["complete_count"], 8)
         self.assertEqual(summary["incomplete_count"], 0)
+
+    def test_cloud_decode_and_encode_commands(self) -> None:
+        decoded_output = io.StringIO()
+        with contextlib.redirect_stdout(decoded_output):
+            decode_result = main(["cloud-decode", SAMPLE_CLOUD_HEX])
+        decoded = json.loads(decoded_output.getvalue())
+        self.assertEqual(decode_result, 0)
+        self.assertEqual(decoded["bleUnlockThred"][0], -62)
+
+        encoded_output = io.StringIO()
+        with contextlib.redirect_stdout(encoded_output):
+            encode_result = main([
+                "cloud-encode",
+                SAMPLE_CLOUD_HEX,
+                "--unlock",
+                "-63",
+                "-58",
+                "-55",
+                "-67",
+                "-64",
+                "--set",
+                "quickLock.weakFront=2",
+            ])
+        encoded = encoded_output.getvalue().strip()
+        self.assertEqual(encode_result, 0)
+        self.assertEqual(parse_cloud(encoded)["bleUnlockThred"][0], -63)
+        self.assertEqual(parse_cloud(encoded)["quickLock"]["weakFront"], 2)
 
 
 if __name__ == "__main__":

@@ -51,9 +51,20 @@ class RssiTimeAligner:
             self.out_of_order_count += 1
             return ()
 
+        values = decode_frame(frame.arbitration_id, frame.data) if decoded is None else decoded
         if self._origin_timestamp is None:
+            for node in NODE_ORDER:
+                if node.value in values:
+                    self._values[node] = int(values[node.value])
+                    self._value_timestamps[node] = frame.timestamp
+            self._last_frame_timestamp = frame.timestamp
+            if not all(self._values[node] is not None for node in NODE_ORDER):
+                return ()
             self._origin_timestamp = frame.timestamp
             self._next_sample_timestamp = frame.timestamp
+            sample = self._snapshot(frame.timestamp)
+            self._advance_sample_time()
+            return (sample,)
 
         samples: List[RssiSample] = []
         while (
@@ -63,7 +74,6 @@ class RssiTimeAligner:
             samples.append(self._snapshot(self._next_sample_timestamp))
             self._advance_sample_time()
 
-        values = decode_frame(frame.arbitration_id, frame.data) if decoded is None else decoded
         for node in NODE_ORDER:
             if node.value in values:
                 self._values[node] = int(values[node.value])
@@ -92,6 +102,14 @@ class RssiTimeAligner:
             samples.append(self._snapshot(self._next_sample_timestamp))
             self._advance_sample_time()
         return tuple(samples)
+
+    def snapshot_at(self, timestamp: float) -> RssiSample:
+        """Read the latest five-node cache at an event timestamp without advancing."""
+        if self._origin_timestamp is None:
+            raise ValueError("cannot create a snapshot before the first frame")
+        if self._last_frame_timestamp is not None and timestamp < self._last_frame_timestamp:
+            raise ValueError("snapshot timestamp cannot move backwards")
+        return self._snapshot(timestamp)
 
     def _advance_sample_time(self) -> None:
         assert self._next_sample_timestamp is not None

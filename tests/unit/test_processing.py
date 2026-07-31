@@ -19,21 +19,24 @@ class ProcessingTests(unittest.TestCase):
             CanFrame(0.01, 0x62A, make_node_ab_payload(-71, -72)),
             CanFrame(0.02, 0x62B, make_node_cd_payload(-73, -74)),
             CanFrame(0.10, 0x629, make_master_payload(-69)),
+            CanFrame(0.12, 0x123, b""),
         ]
         samples = []
         for frame in frames:
             samples.extend(aligner.ingest(frame))
 
-        at_point_one = next(sample for sample in samples if sample.relative_time == 0.1)
-        self.assertEqual(at_point_one.values, (-69, -71, -72, -73, -74))
-        self.assertTrue(all(not flag for flag in at_point_one.stale))
-        self.assertEqual(at_point_one.value(Node.FRONT), -71)
-
-        stale_samples = aligner.ingest(CanFrame(0.5, 0x123, b""))
-        at_point_five = next(
-            sample for sample in stale_samples if sample.relative_time == 0.5
+        at_point_twelve = next(
+            sample for sample in samples if sample.source_timestamp == 0.12
         )
-        self.assertTrue(all(at_point_five.stale))
+        self.assertEqual(at_point_twelve.values, (-69, -71, -72, -73, -74))
+        self.assertTrue(all(not flag for flag in at_point_twelve.stale))
+        self.assertEqual(at_point_twelve.value(Node.FRONT), -71)
+
+        stale_samples = aligner.ingest(CanFrame(0.52, 0x123, b""))
+        at_point_fifty_two = next(
+            sample for sample in stale_samples if sample.source_timestamp == 0.52
+        )
+        self.assertTrue(all(at_point_fifty_two.stale))
 
     def test_out_of_order_frame_is_counted_and_does_not_emit(self) -> None:
         aligner = RssiTimeAligner()
@@ -66,6 +69,27 @@ class ProcessingTests(unittest.TestCase):
             Direction.FRONT,
         )
         self.assertIsNone(result.event)
+
+    def test_pipeline_adds_latest_rssi_snapshot_at_action_edge(self) -> None:
+        processor = CanFrameProcessor()
+        processor.process(
+            CanFrame(0.0, 0x629, make_master_payload(-70)),
+            Direction.FRONT,
+        )
+        processor.process(
+            CanFrame(0.01, 0x62A, make_node_ab_payload(-71, -72)),
+            Direction.FRONT,
+        )
+        processor.process(
+            CanFrame(0.02, 0x62B, make_node_cd_payload(-73, -74)),
+            Direction.FRONT,
+        )
+        result = processor.process(
+            CanFrame(0.03, CANID_LOCKREQ, make_lock_request_payload(2)),
+            Direction.FRONT,
+        )
+        self.assertEqual(result.samples[-1].source_timestamp, 0.03)
+        self.assertEqual(result.samples[-1].values, (-70, -71, -72, -73, -74))
 
 
 if __name__ == "__main__":

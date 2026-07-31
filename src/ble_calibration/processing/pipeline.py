@@ -49,4 +49,10 @@ class CanFrameProcessor:
                 frame.timestamp,
                 direction,
             )
+        if (
+            event is not None
+            and self.aligner.origin_timestamp is not None
+            and (not samples or samples[-1].source_timestamp < frame.timestamp - 1e-9)
+        ):
+            samples = samples + (self.aligner.snapshot_at(frame.timestamp),)
         return FrameProcessingResult(decoded, samples, event)
