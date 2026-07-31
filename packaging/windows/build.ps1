@@ -30,6 +30,7 @@ if (-not $SkipTests) {
     $env:QT_QPA_PLATFORM = "offscreen"
     python tools\ui_smoke.py --max-refresh-ms 200
     python tools\manual_ui_smoke.py --width 1100 --height 720
+    python tools\live_ui_smoke.py --width 1100 --height 720
 }
 
 python packaging\windows\generate_assets.py

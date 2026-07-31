@@ -117,6 +117,27 @@ def main() -> int:
         )
         print(f"Packaged manual workspace screenshot: {manual_screenshot}")
 
+        live_screenshot = root / "live-zlg.png"
+        if live_screenshot.exists():
+            live_screenshot.unlink()
+        run_and_require_screenshot(
+            [
+                str(executable),
+                "gui",
+                "--live-zlg",
+                "--database",
+                str(root / "live-projects.sqlite3"),
+                "--settings",
+                str(root / "live-settings.json"),
+                "--parameters-hidden",
+                "--screenshot",
+                str(live_screenshot),
+            ],
+            live_screenshot,
+            args.timeout,
+        )
+        print(f"Packaged live ZLG workspace screenshot: {live_screenshot}")
+
     print(
         "Packaged EXE smoke test passed: "
         f"{executable} (8 directions and quality summaries recomputed)"

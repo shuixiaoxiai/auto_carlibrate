@@ -4,17 +4,24 @@ from __future__ import annotations
 
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Optional, Sequence
 
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QApplication
 
-from ..config import default_user_data_dir
+from ..can import ZlgCanSource
+from ..config import (
+    CanSettings,
+    default_user_data_dir,
+    load_settings,
+    save_settings,
+)
 from ..session import ManualCaptureCoordinator
 from .demo import build_file_demo_state, build_generated_demo_state
 from .main_window import CalibrationMainWindow
-from .manual_demo import build_manual_demo
+from .manual_demo import build_empty_state, build_manual_demo
 from .project_workspace import ProjectWorkspace
 
 
@@ -27,8 +34,10 @@ def run_ui(
     quit_after_ms: Optional[int] = None,
     parameters_hidden: bool = False,
     manual_mock: bool = False,
+    live_zlg: bool = False,
     replay_speed: float = 10.0,
     database_path: Optional[Path] = None,
+    settings_path: Optional[Path] = None,
     project_id: Optional[str] = None,
     project_name: str = "新建八方向标定",
     automation_report_path: Optional[Path] = None,
@@ -37,10 +46,21 @@ def run_ui(
     app = QApplication.instance() or QApplication(list(argv or sys.argv))
     manual_capture = None
     source_factory = None
+    live_source_factory = None
     workspace = None
     resolved_database = database_path or (
         default_user_data_dir() / "projects.sqlite3"
     )
+    resolved_settings = settings_path or (
+        default_user_data_dir() / "settings.json"
+    )
+    app_settings = load_settings(resolved_settings)
+
+    def persist_can_settings(can_settings: CanSettings) -> None:
+        nonlocal app_settings
+        app_settings = replace(app_settings, can=can_settings)
+        save_settings(resolved_settings, app_settings)
+
     if project_id is not None:
         if frame_path is not None:
             raise ValueError("project_id cannot be combined with frame_path")
@@ -53,6 +73,10 @@ def run_ui(
             _, provider = build_manual_demo(seed, replay_speed)
             manual_capture = ManualCaptureCoordinator()
             source_factory = provider.source_for
+        elif live_zlg:
+            manual_capture = ManualCaptureCoordinator()
+            live_source_factory = ZlgCanSource
+            workspace.capture_channel = app_settings.can.channel
     elif manual_mock:
         if frame_path is not None:
             raise ValueError("manual Mock mode cannot be combined with frame_path")
@@ -62,6 +86,18 @@ def run_ui(
         workspace = ProjectWorkspace.create(
             resolved_database,
             project_name,
+        )
+    elif live_zlg:
+        if frame_path is not None:
+            raise ValueError("live ZLG mode cannot be combined with frame_path")
+        state = build_empty_state()
+        manual_capture = ManualCaptureCoordinator()
+        live_source_factory = ZlgCanSource
+        workspace = ProjectWorkspace.create(
+            resolved_database,
+            project_name,
+            capture_format="blf",
+            capture_channel=app_settings.can.channel,
         )
     elif frame_path is None:
         state = build_generated_demo_state(seed)
@@ -77,6 +113,9 @@ def run_ui(
         project_name,
         manual_capture=manual_capture,
         source_factory=source_factory,
+        live_source_factory=live_source_factory,
+        can_settings=app_settings.can,
+        settings_saver=persist_can_settings,
         workspace=workspace,
     )
     window.show()

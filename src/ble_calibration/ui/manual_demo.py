@@ -62,11 +62,15 @@ def build_manual_demo(
     seed: int = 20260730,
     replay_speed: float = 10.0,
 ) -> Tuple[CalibrationUiState, ManualMockProvider]:
+    return (
+        build_empty_state(),
+        ManualMockProvider(seed=seed, replay_speed=replay_speed),
+    )
+
+
+def build_empty_state() -> CalibrationUiState:
     document = demo_cloud_document(
         REFERENCE_UNLOCK_THRESHOLDS,
         REFERENCE_LOCK_THRESHOLDS,
     )
-    return (
-        CalibrationUiState(document, ()),
-        ManualMockProvider(seed=seed, replay_speed=replay_speed),
-    )
+    return CalibrationUiState(document, ())

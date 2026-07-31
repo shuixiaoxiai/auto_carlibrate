@@ -9,11 +9,11 @@
 - 需要安装 Inno Setup 6；只生成 onedir 和 ZIP 时可使用 `-SkipInstaller`。
 
 ZLG 实车候选包还要求当前 Python 环境已经安装 `zlgcan==0.3.0`，并且包内存在与
-CPython 3.9 64 位匹配的 `clgcan_driver.pyd`。公开 PyPI 当前无法取得该版本，因此脚本
-不会尝试从公开源安装它；请在已经能运行 `tools/can_read_save.py` 的 Windows 环境中
-使用 `-IncludeZlgcan`。
+CPython 3.9 64 位匹配的 `clgcan_driver.pyd`。构建脚本不会替换这套已经过实车脚本验证
+的依赖；请在能运行 `tools/can_read_save.py` 的 Windows 环境中使用
+`-IncludeZlgcan`。
 
-## 生成 Mock 候选包
+## 生成无硬件候选包
 
 在仓库根目录的 PowerShell 中执行：
 
@@ -25,10 +25,11 @@ packaging\windows\build.ps1
 
 1. 校验 PowerShell 和 Python 都是 64 位。
 2. 安装应用、固定构建依赖和 `python-can==4.6.1`。
-3. 运行 75 个单元测试、Qt 联动测试和八方向手动工作流测试。
+3. 运行 78 个单元测试、Qt What-if、Mock 手动采集和模拟 ZLG 持久连接工作流测试。
 4. 生成 ICO 和 Windows 版本资源。
 5. 生成 PyInstaller onedir 应用。
-6. 启动冻结后的 EXE，验证 8 个方向和优良差汇总随 What-if 同步重算。
+6. 启动冻结后的 EXE，验证 8 个方向和优良差汇总随 What-if 同步重算，并验证
+   Mock 手动工作区和 ZLG 设备工作区均可打开。
 7. 生成 ZIP 和 Inno Setup 安装包。
 
 产物：
@@ -40,6 +41,7 @@ dist\BLECalibration-<version>-Setup.exe
 dist\acceptance\analysis.json
 dist\acceptance\analysis.png
 dist\acceptance\manual.png
+dist\acceptance\live-zlg.png
 ```
 
 `analysis.json` 必须记录：
@@ -59,6 +61,10 @@ packaging\windows\build.ps1 -IncludeZlgcan
 
 脚本会在打包前校验 `zlgcan==0.3.0` 和 `clgcan_driver.pyd`，并在打包后再次检查
 onedir 中确实包含该 `.pyd`。任一检查失败都不会产出通过状态。
+
+安装后的 `BLECalibration.exe` 无参数启动时默认进入 ZLG 实车工作区。连接一次设备后，
+8 个方向共享同一个实时接收线程；每个方向开始时单独创建 BLF，手动结束后关闭该方向
+BLF，但保持设备连接。缺少任一解闭锁事件时仍允许手动结束并保存为不完整方向。
 
 ## 两小时 Mock 长稳
 

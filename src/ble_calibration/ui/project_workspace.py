@@ -8,7 +8,11 @@ from pathlib import Path
 from typing import Optional, Tuple
 
 from ..analysis import DirectionDataset
-from ..can.recording import JsonlFrameRecorder
+from ..can.recording import (
+    FrameRecorder,
+    JsonlFrameRecorder,
+    RotatingBlfRecorder,
+)
 from ..cloud import decode_cloud
 from ..domain import CalibrationProject, Direction
 from ..replay import ReplayService
@@ -28,6 +32,8 @@ class ProjectWorkspace:
     created_at: str
     vehicle_name: Optional[str] = None
     vehicle_vin: Optional[str] = None
+    capture_format: str = "jsonl"
+    capture_channel: int = 0
     persisted: bool = False
 
     @classmethod
@@ -35,13 +41,21 @@ class ProjectWorkspace:
         cls,
         database_path: Path,
         name: str,
+        capture_format: str = "jsonl",
+        capture_channel: int = 0,
     ) -> "ProjectWorkspace":
+        if capture_format not in ("jsonl", "blf"):
+            raise ValueError("capture_format must be jsonl or blf")
+        if capture_channel < 0:
+            raise ValueError("capture_channel cannot be negative")
         project = CalibrationProject(name=name)
         return cls(
             database_path=Path(database_path),
             project_id=project.project_id,
             name=project.name,
             created_at=project.created_at,
+            capture_format=capture_format,
+            capture_channel=capture_channel,
         )
 
     @property
@@ -55,9 +69,17 @@ class ProjectWorkspace:
     def capture_target(
         self,
         direction: Direction,
-    ) -> Tuple[JsonlFrameRecorder, str]:
-        path = self.capture_directory / f"{direction.value}.jsonl"
-        return JsonlFrameRecorder(path), str(path.resolve())
+    ) -> Tuple[FrameRecorder, str]:
+        if self.capture_format == "jsonl":
+            path = self.capture_directory / f"{direction.value}.jsonl"
+            return JsonlFrameRecorder(path), str(path.resolve())
+        if self.capture_format == "blf":
+            recorder = RotatingBlfRecorder(
+                self.capture_directory / direction.value,
+                channel=self.capture_channel,
+            )
+            return recorder, str(recorder.paths[0].resolve())
+        raise ValueError(f"unsupported capture format: {self.capture_format}")
 
     def to_stored_project(self, state: CalibrationUiState) -> StoredProject:
         project = CalibrationProject(
@@ -77,7 +99,7 @@ class ProjectWorkspace:
         return StoredProject(
             project=project,
             current_cloud_hex=state.current_document.encode_hex(),
-            capture_format="jsonl",
+            capture_format=self.capture_format,
             vehicle_name=self.vehicle_name,
             vehicle_vin=self.vehicle_vin,
         )
@@ -136,6 +158,7 @@ class ProjectWorkspace:
             created_at=stored.project.created_at,
             vehicle_name=stored.vehicle_name,
             vehicle_vin=stored.vehicle_vin,
+            capture_format=stored.capture_format or "jsonl",
             persisted=True,
         )
         return workspace, state

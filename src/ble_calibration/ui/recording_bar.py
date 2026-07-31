@@ -41,6 +41,8 @@ class RecordingBar(QFrame):
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setObjectName("directionCard")
+        self._source_ready = True
+        self._recording = False
         root = QVBoxLayout(self)
         root.setContentsMargins(13, 10, 13, 10)
         root.setSpacing(6)
@@ -133,14 +135,19 @@ class RecordingBar(QFrame):
         self.finish_requested.emit(lock, unlock)
 
     def set_recording(self, recording: bool) -> None:
+        self._recording = recording
         self.direction_combo.setEnabled(not recording)
         self.walking_speed.setEnabled(not recording)
-        self.start_button.setEnabled(not recording)
+        self.start_button.setEnabled(not recording and self._source_ready)
         self.finish_button.setEnabled(recording)
         self.redo_button.setEnabled(not recording)
         self.complete_test_button.setEnabled(not recording)
         self.lock_distance.setEnabled(True)
         self.unlock_distance.setEnabled(True)
+
+    def set_source_ready(self, ready: bool) -> None:
+        self._source_ready = ready
+        self.start_button.setEnabled(not self._recording and ready)
 
     def reset_distances(self) -> None:
         self.lock_distance.setValue(-1.0)

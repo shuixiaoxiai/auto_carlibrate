@@ -1,6 +1,7 @@
 # 汽车数字钥匙 BLE 标定工具 Windows EXE 落地计划
 
-> 执行状态：第 1～8 步已完成，下一步为“Windows 打包和无硬件验收”。
+> 执行状态：第 1～8 步已完成；第 9 步 Windows 打包和第 10 步实车接入准备进行中。
+> 真实 Windows 构建、CAN 盒和实车验收尚未完成。
 > 第 1 步评审材料见 [`plans/step-01/`](step-01/README.md)，第 2 步验收记录见
 > [`plans/step-02/`](step-02/README.md)，第 3 步验收记录见
 > [`plans/step-03/`](step-03/README.md)，第 4 步验收记录见
@@ -8,7 +9,9 @@
 > [`plans/step-05/`](step-05/README.md)，第 6 步验收记录见
 > [`plans/step-06/`](step-06/README.md)，第 7 步验收记录见
 > [`plans/step-07/`](step-07/README.md)，第 8 步验收记录见
-> [`plans/step-08/`](step-08/README.md)。
+> [`plans/step-08/`](step-08/README.md)，第 9 步记录见
+> [`plans/step-09/`](step-09/README.md)，第 10 步记录见
+> [`plans/step-10/`](step-10/README.md)。
 
 ## 1. 项目目标
 
@@ -501,6 +504,8 @@ distance_at_action
 预计时间：4～5 天。
 
 ### 第 10 步：CAN 盒、实车联调和正式发布
+
+状态：**进行中（已完成软件接入，等待 Windows CAN 盒和实车验收）**
 
 工作内容：
 

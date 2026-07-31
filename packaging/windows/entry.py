@@ -10,7 +10,7 @@ from ble_calibration.app.main import main
 def run() -> int:
     arguments = sys.argv[1:]
     if not arguments:
-        arguments = ["gui", "--manual-mock"]
+        arguments = ["gui", "--live-zlg"]
     return main(arguments)
 
 

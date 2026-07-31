@@ -1,7 +1,8 @@
 # BLE Calibration
 
-汽车数字钥匙 BLE 标定 Windows 应用。当前已完成核心数据闭环、项目存储、离线回放和
-八方向桌面界面，开发与验收仍优先使用 Mock 数据。
+汽车数字钥匙 BLE 标定 Windows 应用。当前已完成核心数据闭环、项目存储、离线回放、
+八方向桌面界面和 ZLG 实时采集入口。开发与自动化验收优先使用 Mock/模拟实时源，
+Windows 实机通过同一界面连接 ZLG CAN 设备。
 
 ## 本地运行
 
@@ -30,6 +31,9 @@ python run_app.py gui
 python run_app.py gui \
   --manual-mock \
   --project-name "八方向手动标定"
+python run_app.py gui \
+  --live-zlg \
+  --project-name "实车八方向标定"
 ```
 
 以标准包方式运行：
@@ -52,18 +56,24 @@ python -m unittest discover -s tests -v
 ```bash
 python tools/ui_smoke.py --max-refresh-ms 200
 python tools/manual_ui_smoke.py --width 1100 --height 720
+python tools/live_ui_smoke.py --width 1100 --height 720
 ```
+
+`--live-zlg` 工作区在顶部提供设备类型、索引、通道、仲裁域/数据域波特率、终端电阻和
+library 路径配置。设备连接后保持在线，测试人员逐方向点击开始/结束；每个方向单独录制
+BLF，方向切换不会重复打开 CAN 设备。设备配置默认保存在用户数据目录的
+`settings.json`。
 
 ## Windows 打包
 
-在 Windows 10/11 64 位、Python 3.9 64 位环境执行：
+在 Windows 10/11 64 位、Python 3.9 64 位环境执行无硬件构建：
 
 ```powershell
 packaging\windows\build.ps1
 ```
 
 在已经验证 `tools/can_read_save.py` 可运行、且安装了 `zlgcan==0.3.0` 的环境生成包含
-ZLG 原生驱动的候选包：
+ZLG 原生驱动、可连接实车的候选包：
 
 ```powershell
 packaging\windows\build.ps1 -IncludeZlgcan

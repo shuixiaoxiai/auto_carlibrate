@@ -24,9 +24,15 @@ from PySide6.QtWidgets import (
 )
 
 from ..cloud import CloudCodecError
-from ..can.source import CanSource
+from ..can.source import CanSource, SourceState, SourceStatus
+from ..config import CanSettings
 from ..domain import Direction, DirectionStatus
-from ..session import ManualCaptureCoordinator, SessionStateError
+from ..session import (
+    ManualCaptureCoordinator,
+    ManualCaptureSnapshot,
+    SessionStateError,
+)
+from .device_panel import DevicePanel
 from .direction_chart import DirectionChartCard
 from .parameter_panel import ParameterPanel
 from .project_dialog import ProjectPickerDialog
@@ -43,6 +49,9 @@ class CalibrationMainWindow(QMainWindow):
         project_name: str = "未命名项目",
         manual_capture: Optional[ManualCaptureCoordinator] = None,
         source_factory: Optional[Callable[[Direction], CanSource]] = None,
+        live_source_factory: Optional[Callable[[CanSettings], CanSource]] = None,
+        can_settings: Optional[CanSettings] = None,
+        settings_saver: Optional[Callable[[CanSettings], None]] = None,
         workspace: Optional[ProjectWorkspace] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
@@ -51,12 +60,21 @@ class CalibrationMainWindow(QMainWindow):
         self.project_name = project_name
         self.manual_capture = manual_capture
         self.source_factory = source_factory
+        self.live_source_factory = live_source_factory
+        self.can_settings = can_settings or CanSettings()
+        self.settings_saver = settings_saver
         self.workspace = workspace
         self._dirty = workspace is not None and not workspace.persisted
         self._automated_exit = False
-        if (manual_capture is None) != (source_factory is None):
+        source_count = sum(
+            factory is not None
+            for factory in (source_factory, live_source_factory)
+        )
+        if source_count > 1:
+            raise ValueError("only one manual CAN source mode can be active")
+        if (manual_capture is None) != (source_count == 0):
             raise ValueError(
-                "manual_capture and source_factory must be provided together"
+                "manual_capture and one source factory must be provided together"
             )
         self.cards: Dict[Direction, DirectionChartCard] = {}
         self.last_what_if_refresh_ms: Optional[float] = None
@@ -91,12 +109,30 @@ class CalibrationMainWindow(QMainWindow):
         self._last_preview_sample_count = -1
         if self.manual_capture is not None:
             self.capture_timer.start()
-            self.data_status.setText("● Mock 手动采集待机")
+            if self.live_source_factory is not None:
+                self.recording_bar.set_source_ready(False)
+                self.data_status.setText("● ZLG 设备未连接")
+                assert self.device_panel is not None
+                self.device_panel.set_connection_snapshot(
+                    None,
+                    None,
+                    0,
+                    source_attached=False,
+                )
+            else:
+                self.recording_bar.set_source_ready(True)
+                self.data_status.setText("● Mock 手动采集待机")
 
         self.parameter_panel.set_document(self.state.current_document)
         for direction, card in self.cards.items():
             card.set_dataset(self.state.dataset_for(direction))
-        self._refresh_result("Mock/回放数据已载入")
+        if self.live_source_factory is not None:
+            initial_message = "ZLG 实车采集工作区已就绪"
+        elif self.manual_capture is not None:
+            initial_message = "Mock 手动采集工作区已就绪"
+        else:
+            initial_message = "Mock/回放数据已载入"
+        self._refresh_result(initial_message)
 
     def _build_toolbar(self) -> None:
         toolbar = QToolBar("主工具栏")
@@ -172,6 +208,20 @@ class CalibrationMainWindow(QMainWindow):
         self.show_parameters_top.hide()
         layout.addWidget(self.show_parameters_top)
 
+        self.device_panel: Optional[DevicePanel] = None
+        if self.live_source_factory is not None:
+            self.device_panel = DevicePanel(self.can_settings)
+            self.device_panel.connect_requested.connect(
+                self._connect_live_device
+            )
+            self.device_panel.disconnect_requested.connect(
+                self._disconnect_live_device
+            )
+            self.device_panel.settings_saved.connect(
+                self._save_can_settings
+            )
+            layout.addWidget(self.device_panel)
+
         self.recording_bar = RecordingBar()
         self.recording_bar.setVisible(self.manual_capture is not None)
         self.recording_bar.start_requested.connect(self._start_manual_recording)
@@ -222,6 +272,98 @@ class CalibrationMainWindow(QMainWindow):
         )
         if visible:
             self.scroll.verticalScrollBar().setValue(0)
+
+    def _save_can_settings(self, settings: CanSettings) -> bool:
+        try:
+            if self.settings_saver is not None:
+                self.settings_saver(settings)
+        except (OSError, ValueError) as error:
+            QMessageBox.critical(self, "配置保存失败", str(error))
+            return False
+        self.can_settings = settings
+        if self.workspace is not None:
+            self.workspace.capture_channel = settings.channel
+        self.statusBar().showMessage("ZLG CAN 配置已保存", 4000)
+        return True
+
+    def _connect_live_device(self, settings: CanSettings) -> None:
+        if self.live_source_factory is None or self.manual_capture is None:
+            return
+        if self.manual_capture.is_active:
+            QMessageBox.information(self, "正在记录", "请先结束当前方向。")
+            return
+        if not self._save_can_settings(settings):
+            return
+        try:
+            self.manual_capture.connect(self.live_source_factory(settings))
+        except (OSError, ValueError, RuntimeError, SessionStateError) as error:
+            assert self.device_panel is not None
+            self.device_panel.set_connection_snapshot(
+                SourceStatus(SourceState.ERROR, str(error)),
+                str(error),
+                0,
+                source_attached=False,
+            )
+            self.data_status.setText("● ZLG 连接失败")
+            return
+        assert self.device_panel is not None
+        self.device_panel.set_connection_snapshot(
+            SourceStatus(SourceState.CONNECTING, "正在打开设备"),
+            None,
+            0,
+            source_attached=True,
+        )
+        self.recording_bar.set_source_ready(False)
+        self.data_status.setText("● ZLG 正在连接")
+
+    def _disconnect_live_device(self) -> None:
+        if self.manual_capture is None or self.device_panel is None:
+            return
+        try:
+            self.manual_capture.disconnect()
+        except (RuntimeError, SessionStateError) as error:
+            QMessageBox.information(self, "无法断开设备", str(error))
+            return
+        self.device_panel.set_connection_snapshot(
+            None,
+            None,
+            0,
+            source_attached=False,
+        )
+        self.recording_bar.set_source_ready(False)
+        recorded = len(self.state.datasets)
+        self.data_status.setText(
+            f"● ZLG 未连接 · 已记录 {recorded}/8"
+        )
+
+    def _set_live_data_status(
+        self,
+        snapshot: ManualCaptureSnapshot,
+    ) -> None:
+        if snapshot.error:
+            self.data_status.setText("● ZLG 采集错误")
+            self.data_status.setStyleSheet("color:#ff6b78; padding:0 10px;")
+            return
+        status = snapshot.source_status
+        state = SourceState.DISCONNECTED if status is None else status.state
+        if self.manual_capture is not None and self.manual_capture.is_active:
+            direction = snapshot.direction
+            label = "" if direction is None else f" {direction.label}"
+            self.data_status.setText(f"● ZLG 正在记录{label}")
+            self.data_status.setStyleSheet("color:#58d68d; padding:0 10px;")
+        elif state in (SourceState.CONNECTED, SourceState.RUNNING):
+            self.data_status.setText(
+                f"● ZLG 已连接 · 接收 {snapshot.frame_count:,} 帧"
+            )
+            self.data_status.setStyleSheet("color:#58d68d; padding:0 10px;")
+        elif state is SourceState.CONNECTING:
+            self.data_status.setText("● ZLG 正在连接")
+            self.data_status.setStyleSheet("color:#f4c95d; padding:0 10px;")
+        else:
+            self.data_status.setText(
+                f"● ZLG 未连接 · 已记录 {len(self.state.datasets)}/8"
+            )
+            self.data_status.setStyleSheet("color:#f4c95d; padding:0 10px;")
 
     def _decode_cloud(self, hex_text: str) -> None:
         try:
@@ -312,7 +454,7 @@ class CalibrationMainWindow(QMainWindow):
         direction: Direction,
         walking_speed: float,
     ) -> None:
-        if self.manual_capture is None or self.source_factory is None:
+        if self.manual_capture is None:
             return
         existing = self.state.dataset_for(direction)
         if existing is not None:
@@ -329,26 +471,42 @@ class CalibrationMainWindow(QMainWindow):
             self.cards[direction].set_dataset(None)
             self._refresh_result(f"{direction.label}旧记录已移除，等待重录")
             self._mark_dirty()
+        recorder = None
         try:
-            source = self.source_factory(direction)
-            recorder = None
+            if (
+                self.live_source_factory is not None
+                and not self.manual_capture.is_connected
+            ):
+                raise SessionStateError("请先连接 ZLG CAN 设备")
             raw_data_file = None
             if self.workspace is not None:
                 recorder, raw_data_file = self.workspace.capture_target(direction)
-            self.manual_capture.begin(
-                direction,
-                source,
-                walking_speed_mps=walking_speed,
-                raw_data_file=raw_data_file,
-                recorder=recorder,
-            )
+            if self.source_factory is not None:
+                self.manual_capture.begin(
+                    direction,
+                    self.source_factory(direction),
+                    walking_speed_mps=walking_speed,
+                    raw_data_file=raw_data_file,
+                    recorder=recorder,
+                )
+            else:
+                self.manual_capture.begin_connected(
+                    direction,
+                    walking_speed_mps=walking_speed,
+                    raw_data_file=raw_data_file,
+                    recorder=recorder,
+                )
         except (OSError, ValueError, RuntimeError, SessionStateError) as error:
+            if recorder is not None:
+                recorder.stop()
             self.recording_bar.status_label.setText(f"无法开始：{error}")
             self.recording_bar.status_label.setStyleSheet("color:#ff6b78;")
             return
         self._last_preview_sample_count = -1
         self.recording_bar.reset_distances()
         self.recording_bar.set_recording(True)
+        if self.device_panel is not None:
+            self.device_panel.set_recording(True)
         self.data_status.setText(f"● 正在记录 {direction.label}")
         self.statusBar().showMessage(
             f"{direction.label}开始记录：远离等待闭锁，随后靠近等待解锁",
@@ -403,6 +561,19 @@ class CalibrationMainWindow(QMainWindow):
         if self.manual_capture is None:
             return
         snapshot = self.manual_capture.snapshot()
+        if self.device_panel is not None:
+            source_attached = self.manual_capture.uses_persistent_source
+            self.device_panel.set_connection_snapshot(
+                snapshot.source_status,
+                snapshot.error,
+                snapshot.frame_count,
+                source_attached=source_attached,
+            )
+            self.device_panel.set_recording(self.manual_capture.is_active)
+            self.recording_bar.set_source_ready(
+                self.manual_capture.is_connected
+            )
+            self._set_live_data_status(snapshot)
         self.recording_bar.set_snapshot(snapshot)
         preview = snapshot.dataset
         if (
@@ -446,11 +617,16 @@ class CalibrationMainWindow(QMainWindow):
         self._refresh_result(f"{dataset.record.direction.label}已手动结束并保存")
         complete = dataset.record.status is DirectionStatus.COMPLETE
         self.recording_bar.set_finished(dataset.record.direction, complete)
+        if self.device_panel is not None:
+            self.device_panel.set_recording(False)
         recorded = tuple(item.record.direction for item in self.state.datasets)
         self.recording_bar.select_next_unrecorded(recorded)
-        self.data_status.setText(
-            f"● 已记录 {len(recorded)}/8"
-        )
+        if self.live_source_factory is None:
+            self.data_status.setText(f"● 已记录 {len(recorded)}/8")
+        else:
+            self.data_status.setText(
+                f"● ZLG 已连接 · 已记录 {len(recorded)}/8"
+            )
         self._mark_dirty()
         self._save_recovery_snapshot()
 
@@ -525,6 +701,8 @@ class CalibrationMainWindow(QMainWindow):
         workspace = ProjectWorkspace.create(
             self.workspace.database_path,
             name.strip(),
+            capture_format=self.workspace.capture_format,
+            capture_channel=self.workspace.capture_channel,
         )
         state = CalibrationUiState(self.state.original_document, ())
         self._replace_workspace(workspace, state)
@@ -575,7 +753,21 @@ class CalibrationMainWindow(QMainWindow):
         self._refresh_result("项目工作区已切换")
         recorded = tuple(item.record.direction for item in state.datasets)
         self.recording_bar.select_next_unrecorded(recorded)
-        self.data_status.setText(f"● 已记录 {len(recorded)}/8")
+        if self.live_source_factory is not None:
+            self.recording_bar.set_source_ready(False)
+            assert self.device_panel is not None
+            self.device_panel.set_connection_snapshot(
+                None,
+                None,
+                0,
+                source_attached=False,
+            )
+            self.data_status.setText(
+                f"● ZLG 未连接 · 已记录 {len(recorded)}/8"
+            )
+        else:
+            self.recording_bar.set_source_ready(True)
+            self.data_status.setText(f"● 已记录 {len(recorded)}/8")
 
     def _refresh_result(self, message: str) -> None:
         result = self.state.result

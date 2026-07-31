@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from ble_calibration.domain import Direction
 from ble_calibration.mock.generator import (
@@ -14,6 +15,31 @@ from ble_calibration.ui.project_workspace import ProjectWorkspace
 
 
 class CalibrationUiStateTests(unittest.TestCase):
+    def test_live_workspace_uses_blf_and_selected_can_channel(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = ProjectWorkspace.create(
+                Path(temp_dir) / "projects.sqlite3",
+                "实车项目",
+                capture_format="blf",
+                capture_channel=2,
+            )
+            expected_path = (
+                workspace.capture_directory / "front_20260731.blf"
+            ).resolve()
+            with patch(
+                "ble_calibration.ui.project_workspace.RotatingBlfRecorder"
+            ) as recorder_type:
+                recorder_type.return_value.paths = [expected_path]
+                recorder, raw_path = workspace.capture_target(Direction.FRONT)
+
+        recorder_type.assert_called_once_with(
+            workspace.capture_directory / "front",
+            channel=2,
+        )
+        self.assertIs(recorder, recorder_type.return_value)
+        self.assertEqual(raw_path, str(expected_path))
+        self.assertEqual(workspace.capture_format, "blf")
+
     def test_parameter_update_recomputes_directions_and_summaries_together(self) -> None:
         state = build_generated_demo_state(seed=20260730)
         original_hex = state.encoded_hex()

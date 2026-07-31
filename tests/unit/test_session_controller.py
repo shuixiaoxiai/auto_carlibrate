@@ -1,7 +1,9 @@
 import unittest
 import time
+from queue import Empty, Queue
 
 from ble_calibration.can import MemoryCanSource
+from ble_calibration.can.source import CanSource, SourceState
 from ble_calibration.domain import (
     Direction,
     DirectionStatus,
@@ -16,6 +18,60 @@ from ble_calibration.session import (
 )
 
 
+class PushCanSource(CanSource):
+    def __init__(self) -> None:
+        super().__init__()
+        self.frames = Queue()
+        self.stop_count = 0
+
+    def connect(self) -> None:
+        self._set_state(SourceState.CONNECTED, "test live source connected")
+
+    def push(self, frames) -> None:
+        for frame in frames:
+            self.frames.put(frame)
+
+    def recv(self, timeout: float = 1.0):
+        if self.state is SourceState.CONNECTED:
+            self._set_state(SourceState.RUNNING, "test live source running")
+        if self.state in (SourceState.STOPPED, SourceState.ERROR):
+            return None
+        try:
+            return self.frames.get(timeout=timeout)
+        except Empty:
+            return None
+
+    def stop(self) -> None:
+        if self.state is SourceState.STOPPED:
+            return
+        self.stop_count += 1
+        self._set_state(SourceState.STOPPED, "test live source stopped")
+
+
+class FailingCanSource(CanSource):
+    def connect(self) -> None:
+        self._set_state(SourceState.ERROR, "device unavailable")
+        raise RuntimeError("device unavailable")
+
+    def recv(self, timeout: float = 1.0):
+        return None
+
+    def stop(self) -> None:
+        self._set_state(SourceState.STOPPED, "failed source stopped")
+
+
+class CountingRecorder:
+    def __init__(self) -> None:
+        self.frames = []
+        self.stop_count = 0
+
+    def write(self, frame) -> None:
+        self.frames.append(frame)
+
+    def stop(self) -> None:
+        self.stop_count += 1
+
+
 class DirectionSessionControllerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -27,6 +83,14 @@ class DirectionSessionControllerTests(unittest.TestCase):
             for frame in self.frames
             if item["start_time"] <= frame.timestamp <= item["end_time"] + 0.1
         ]
+
+    @staticmethod
+    def wait_until(predicate, timeout: float = 2.0) -> None:
+        deadline = time.monotonic() + timeout
+        while not predicate():
+            if time.monotonic() >= deadline:
+                raise AssertionError("condition was not reached before timeout")
+            time.sleep(0.002)
 
     def test_complete_one_direction_with_actual_distances(self) -> None:
         controller = DirectionSessionController()
@@ -129,6 +193,90 @@ class DirectionSessionControllerTests(unittest.TestCase):
         )
         self.assertEqual(dataset.record.status, DirectionStatus.COMPLETE)
         self.assertEqual(len(dataset.samples), dataset.record.sample_count)
+
+    def test_persistent_live_source_stays_connected_across_directions(self) -> None:
+        coordinator = ManualCaptureCoordinator()
+        source = PushCanSource()
+        coordinator.connect(source)
+        self.wait_until(lambda: coordinator.is_connected)
+
+        first = self.manifest["directions"][0]
+        first_frames = self.frames_for_manifest_direction(first)
+        first_recorder = CountingRecorder()
+        coordinator.begin_connected(
+            Direction.from_label(first["name"]),
+            raw_data_file="front.blf",
+            recorder=first_recorder,
+        )
+        source.push(first_frames)
+        self.wait_until(
+            lambda: (
+                coordinator.snapshot().dataset is not None
+                and coordinator.snapshot().dataset.record.event(EventType.UNLOCK)
+                is not None
+                and len(first_recorder.frames) >= len(first_frames)
+            )
+        )
+        first_dataset = coordinator.finish(
+            lock_distance_m=first["lock_distance_m"],
+            unlock_distance_m=first["unlock_distance_m"],
+        )
+
+        self.assertTrue(coordinator.is_connected)
+        self.assertEqual(first_dataset.record.status, DirectionStatus.COMPLETE)
+        self.assertEqual(len(first_recorder.frames), len(first_frames))
+        self.assertEqual(first_recorder.stop_count, 1)
+        self.assertEqual(source.stop_count, 0)
+
+        second = self.manifest["directions"][1]
+        second_frames = self.frames_for_manifest_direction(second)
+        second_recorder = CountingRecorder()
+        coordinator.begin_connected(
+            Direction.from_label(second["name"]),
+            raw_data_file="front_right.blf",
+            recorder=second_recorder,
+        )
+        source.push(second_frames)
+        self.wait_until(
+            lambda: (
+                coordinator.snapshot().dataset is not None
+                and coordinator.snapshot().dataset.record.event(EventType.UNLOCK)
+                is not None
+                and len(second_recorder.frames) >= len(second_frames)
+            )
+        )
+        second_dataset = coordinator.finish(
+            lock_distance_m=second["lock_distance_m"],
+            unlock_distance_m=second["unlock_distance_m"],
+        )
+        coordinator.disconnect()
+
+        self.assertEqual(second_dataset.record.status, DirectionStatus.COMPLETE)
+        self.assertEqual(len(second_recorder.frames), len(second_frames))
+        self.assertEqual(second_recorder.stop_count, 1)
+        self.assertEqual(source.stop_count, 1)
+        self.assertFalse(coordinator.is_connected)
+
+    def test_failed_live_connection_can_be_replaced_without_restart(self) -> None:
+        coordinator = ManualCaptureCoordinator()
+        coordinator.connect(FailingCanSource())
+        self.wait_until(
+            lambda: (
+                coordinator.snapshot().error is not None
+                and coordinator.snapshot().source_status is not None
+                and coordinator.snapshot().source_status.state
+                is SourceState.STOPPED
+            )
+        )
+        self.assertFalse(coordinator.is_connected)
+        self.assertIn("device unavailable", coordinator.snapshot().error)
+
+        replacement = PushCanSource()
+        coordinator.connect(replacement)
+        self.wait_until(lambda: coordinator.is_connected)
+        self.assertTrue(coordinator.is_connected)
+        coordinator.disconnect()
+        self.assertEqual(replacement.stop_count, 1)
 
     def test_redo_clears_previous_record(self) -> None:
         controller = DirectionSessionController()
