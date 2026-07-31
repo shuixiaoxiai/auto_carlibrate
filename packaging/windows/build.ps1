@@ -30,9 +30,17 @@ if ($IncludeZlgcan) {
 if (-not $SkipTests) {
     python -m unittest discover -s tests -v
     $env:QT_QPA_PLATFORM = "offscreen"
-    python tools\ui_smoke.py --max-refresh-ms 200
-    python tools\manual_ui_smoke.py --width 1100 --height 720
-    python tools\live_ui_smoke.py --width 1100 --height 720
+    python tools\ui_smoke.py `
+        --max-refresh-ms 200 `
+        --report dist\acceptance\source-ui.json
+    python tools\manual_ui_smoke.py `
+        --width 1100 `
+        --height 720 `
+        --report dist\acceptance\manual-workflow.json
+    python tools\live_ui_smoke.py `
+        --width 1100 `
+        --height 720 `
+        --report dist\acceptance\live-workflow.json
 }
 
 python packaging\windows\generate_assets.py
@@ -106,6 +114,9 @@ if (-not $SkipInstaller) {
 }
 if ($IncludeZlgcan) {
     $ManifestArguments += "--include-zlgcan"
+}
+if (-not $SkipTests) {
+    $ManifestArguments += "--source-tests-run"
 }
 python @ManifestArguments
 

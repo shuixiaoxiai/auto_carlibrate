@@ -63,6 +63,7 @@ class PushLiveSource(CanSource):
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--screenshot", type=Path)
+    parser.add_argument("--report", type=Path)
     parser.add_argument("--width", type=int, default=1600)
     parser.add_argument("--height", type=int, default=1000)
     args = parser.parse_args()
@@ -216,6 +217,15 @@ def main() -> int:
                 ),
                 "single_device_connection": source.stop_count == 1,
                 "settings_persisted": True,
+                "operator_start_finish_directions": len(state.datasets),
+                "lock_distance_inputs": sum(
+                    dataset.record.actual_lock_distance_m is not None
+                    for dataset in state.datasets
+                ),
+                "unlock_distance_inputs": sum(
+                    dataset.record.actual_unlock_distance_m is not None
+                    for dataset in state.datasets
+                ),
                 "raw_direction_files": sum(
                     Path(dataset.record.raw_data_file).exists()
                     for dataset in state.datasets
@@ -231,6 +241,12 @@ def main() -> int:
 
     QTimer.singleShot(100, connect_device)
     app.exec()
+    if args.report is not None:
+        args.report.parent.mkdir(parents=True, exist_ok=True)
+        args.report.write_text(
+            json.dumps(outcome, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
     temporary.cleanup()
     return 0 if outcome["ok"] else 1
 

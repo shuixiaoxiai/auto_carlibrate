@@ -17,6 +17,18 @@ SPEC.loader.exec_module(build_manifest_module)
 
 
 class WindowsBuildManifestTests(unittest.TestCase):
+    def test_source_revision_uses_export_substitution_file(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            revision = "f" * 40
+            (root / "SOURCE_REVISION.txt").write_text(
+                revision + "\n",
+                encoding="utf-8",
+            )
+            resolved = build_manifest_module._source_revision(root)
+
+        self.assertEqual(resolved, revision)
+
     def test_manifest_hashes_artifacts_acceptance_and_native_driver(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -37,6 +49,9 @@ class WindowsBuildManifestTests(unittest.TestCase):
                 "bundle-can.blf",
                 "bundle-can.manifest.json",
                 "zlg-bundle.json",
+                "source-ui.json",
+                "manual-workflow.json",
+                "live-workflow.json",
                 "analysis.json",
                 "analysis.png",
                 "manual.png",
@@ -50,6 +65,7 @@ class WindowsBuildManifestTests(unittest.TestCase):
                 installer=installer,
                 acceptance_dir=acceptance,
                 include_zlgcan=True,
+                source_tests_run=True,
             )
 
         self.assertEqual(
@@ -58,6 +74,8 @@ class WindowsBuildManifestTests(unittest.TestCase):
         )
         self.assertEqual(manifest["python_bits"], 64)
         self.assertTrue(manifest["include_zlgcan"])
+        self.assertTrue(manifest["source_tests_run"])
+        self.assertIsNotNone(manifest["source_revision"])
         self.assertEqual(len(manifest["native_drivers"]), 1)
         self.assertEqual(
             len(manifest["artifacts"]["onedir_exe"]["sha256"]),
@@ -69,6 +87,9 @@ class WindowsBuildManifestTests(unittest.TestCase):
                 "bundle-can.blf",
                 "bundle-can.manifest.json",
                 "zlg-bundle.json",
+                "source-ui.json",
+                "manual-workflow.json",
+                "live-workflow.json",
                 "analysis.json",
                 "analysis.png",
                 "manual.png",
@@ -104,6 +125,7 @@ class WindowsBuildManifestTests(unittest.TestCase):
                     installer=None,
                     acceptance_dir=acceptance,
                     include_zlgcan=True,
+                    source_tests_run=False,
                 )
 
 

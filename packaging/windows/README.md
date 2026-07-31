@@ -29,7 +29,7 @@ packaging\windows\build.ps1
 1. 校验 PowerShell 和 Python 都是 64 位。
 2. 记录当前 Python 版本；实车模式以能运行参考脚本的解释器为准。
 3. 安装应用、固定构建依赖和 `python-can==4.6.1`。
-4. 运行 83 个单元测试、Qt What-if、Mock 手动采集和模拟 ZLG 持久连接工作流测试。
+4. 运行 84 个单元测试、Qt What-if、Mock 手动采集和模拟 ZLG 持久连接工作流测试。
 5. 生成 ICO 和 Windows 版本资源。
 6. 生成 PyInstaller onedir 应用。
 7. 启动冻结后的 EXE，先生成 BLF 验证 `python-can` 已正确收集，再验证 8 个方向和
@@ -49,6 +49,9 @@ dist\acceptance\manual.png
 dist\acceptance\live-zlg.png
 dist\acceptance\bundle-can.blf
 dist\acceptance\bundle-can.manifest.json
+dist\acceptance\source-ui.json
+dist\acceptance\manual-workflow.json
+dist\acceptance\live-workflow.json
 dist\acceptance\build-manifest.json
 ```
 
@@ -61,7 +64,7 @@ dist\acceptance\build-manifest.json
 
 ## 生成包含 ZLG 原生驱动的候选包
 
-先在当前 64 位 Python 3.9 环境确认参考脚本能运行，再执行：
+先在能够运行参考脚本的同一个 64 位 Python 环境中执行：
 
 ```powershell
 packaging\windows\build.ps1 -IncludeZlgcan
@@ -75,6 +78,8 @@ onedir 中确实包含该 `.pyd`。冻结后的 EXE 还会执行一次不打开�
 `build-manifest.json` 中的 `include_zlgcan` 必须为 `true`，`native_drivers` 必须列出
 `clgcan_driver.pyd`，并记录 EXE/ZIP/Setup 的绝对路径、大小和 SHA-256。该文件用于把
 Windows 构建结果回传后核对产物，而不是只凭控制台的“构建成功”判断。
+正式构建时 `source_tests_run` 还必须为 `true`，并包含三份桌面流程报告；
+`source_revision` 用来核对 EXE 对应的源码提交。
 
 安装后的 `BLECalibration.exe` 无参数启动时默认进入 ZLG 实车工作区。连接一次设备后，
 8 个方向共享同一个实时接收线程；每个方向开始时单独创建 BLF，手动结束后关闭该方向

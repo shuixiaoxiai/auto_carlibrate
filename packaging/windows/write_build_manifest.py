@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import platform
+import subprocess
 import struct
 from datetime import datetime, timezone
 from importlib import metadata
@@ -13,6 +14,8 @@ from pathlib import Path
 from typing import Dict, Iterable, Optional
 
 from ble_calibration.version import __version__
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _sha256(path: Path) -> str:
@@ -44,6 +47,27 @@ def _package_versions(names: Iterable[str]) -> Dict[str, Optional[str]]:
     return versions
 
 
+def _source_revision(project_root: Path = PROJECT_ROOT) -> Optional[str]:
+    if (project_root / ".git").exists():
+        completed = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=project_root,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        revision = completed.stdout.strip()
+        if completed.returncode == 0 and revision:
+            return revision
+    revision_path = project_root / "SOURCE_REVISION.txt"
+    if not revision_path.exists():
+        return None
+    revision = revision_path.read_text(encoding="utf-8").strip()
+    if not revision or "$Format" in revision:
+        return None
+    return revision
+
+
 def build_manifest(
     *,
     onedir_exe: Path,
@@ -51,6 +75,7 @@ def build_manifest(
     installer: Optional[Path],
     acceptance_dir: Path,
     include_zlgcan: bool,
+    source_tests_run: bool,
 ) -> Dict[str, object]:
     onedir_exe = onedir_exe.resolve()
     onedir_root = onedir_exe.parent
@@ -74,6 +99,12 @@ def build_manifest(
     )
     if include_zlgcan:
         required_acceptance += ("zlg-bundle.json",)
+    if source_tests_run:
+        required_acceptance += (
+            "source-ui.json",
+            "manual-workflow.json",
+            "live-workflow.json",
+        )
     acceptance = {}
     for name in required_acceptance:
         path = acceptance_dir / name
@@ -90,11 +121,13 @@ def build_manifest(
         "schema": "ble-calibration-build-manifest/v1",
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "application_version": __version__,
+        "source_revision": _source_revision(),
         "platform": platform.platform(),
         "machine": platform.machine(),
         "python_version": platform.python_version(),
         "python_bits": struct.calcsize("P") * 8,
         "include_zlgcan": include_zlgcan,
+        "source_tests_run": source_tests_run,
         "package_versions": _package_versions(
             ("PyInstaller", "PySide6", "pyqtgraph", "python-can", "zlgcan")
         ),
@@ -111,6 +144,7 @@ def main() -> int:
     parser.add_argument("--installer", type=Path)
     parser.add_argument("--acceptance-dir", type=Path, required=True)
     parser.add_argument("--include-zlgcan", action="store_true")
+    parser.add_argument("--source-tests-run", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
@@ -120,6 +154,7 @@ def main() -> int:
         installer=args.installer,
         acceptance_dir=args.acceptance_dir,
         include_zlgcan=args.include_zlgcan,
+        source_tests_run=args.source_tests_run,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
