@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 from typing import Optional, Sequence
@@ -30,6 +31,7 @@ def run_ui(
     database_path: Optional[Path] = None,
     project_id: Optional[str] = None,
     project_name: str = "新建八方向标定",
+    automation_report_path: Optional[Path] = None,
     argv: Optional[Sequence[str]] = None,
 ) -> int:
     app = QApplication.instance() or QApplication(list(argv or sys.argv))
@@ -80,6 +82,68 @@ def run_ui(
     window.show()
     if parameters_hidden:
         window.set_parameters_visible(False)
+
+    if automation_report_path is not None:
+        def exercise_what_if() -> None:
+            for spin in window.parameter_panel.threshold_spins["lock"]:
+                spin.setValue(-100)
+            window._apply_parameter_edits()
+            result = state.result
+            report = {
+                "direction_count": len(result.directions),
+                "refresh_ms": window.last_what_if_refresh_ms,
+                "lock_summary": {
+                    "total": result.lock_summary.total,
+                    "excellent": result.lock_summary.excellent,
+                    "good": result.lock_summary.good,
+                    "poor": result.lock_summary.poor,
+                    "untriggered": len(
+                        result.lock_summary.untriggered_directions
+                    ),
+                },
+                "unlock_summary": {
+                    "total": result.unlock_summary.total,
+                    "excellent": result.unlock_summary.excellent,
+                    "good": result.unlock_summary.good,
+                    "poor": result.unlock_summary.poor,
+                    "untriggered": len(
+                        result.unlock_summary.untriggered_directions
+                    ),
+                },
+                "summary_widgets": {
+                    "lock_excellent": (
+                        window.parameter_panel.summary_panel.lock_card
+                        .excellent_label.text()
+                    ),
+                    "lock_good": (
+                        window.parameter_panel.summary_panel.lock_card
+                        .good_label.text()
+                    ),
+                    "lock_poor": (
+                        window.parameter_panel.summary_panel.lock_card
+                        .poor_label.text()
+                    ),
+                    "unlock_excellent": (
+                        window.parameter_panel.summary_panel.unlock_card
+                        .excellent_label.text()
+                    ),
+                    "unlock_good": (
+                        window.parameter_panel.summary_panel.unlock_card
+                        .good_label.text()
+                    ),
+                    "unlock_poor": (
+                        window.parameter_panel.summary_panel.unlock_card
+                        .poor_label.text()
+                    ),
+                },
+            }
+            automation_report_path.parent.mkdir(parents=True, exist_ok=True)
+            automation_report_path.write_text(
+                json.dumps(report, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
+
+        QTimer.singleShot(250, exercise_what_if)
 
     def automated_exit() -> None:
         window.close_for_automation()

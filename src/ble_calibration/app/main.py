@@ -319,6 +319,11 @@ def _gui_main(argv: Sequence[str]) -> int:
         default=None,
         help="自动退出时间，仅用于自动化验收",
     )
+    parser.add_argument(
+        "--automation-report",
+        type=Path,
+        help=argparse.SUPPRESS,
+    )
     args = parser.parse_args(argv)
     if (args.input is None) != (args.manifest is None):
         parser.error("--input and --manifest must be provided together")
@@ -343,6 +348,7 @@ def _gui_main(argv: Sequence[str]) -> int:
             database_path=args.database,
             project_id=args.project_id,
             project_name=args.project_name,
+            automation_report_path=args.automation_report,
         )
     except (ImportError, OSError, ValueError, KeyError) as error:
         print(f"界面启动失败: {error}", file=sys.stderr)

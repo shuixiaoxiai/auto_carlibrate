@@ -54,6 +54,24 @@ python tools/ui_smoke.py --max-refresh-ms 200
 python tools/manual_ui_smoke.py --width 1100 --height 720
 ```
 
+## Windows 打包
+
+在 Windows 10/11 64 位、Python 3.9 64 位环境执行：
+
+```powershell
+packaging\windows\build.ps1
+```
+
+在已经验证 `tools/can_read_save.py` 可运行、且安装了 `zlgcan==0.3.0` 的环境生成包含
+ZLG 原生驱动的候选包：
+
+```powershell
+packaging\windows\build.ps1 -IncludeZlgcan
+```
+
+完整依赖、产物和两小时 Mock 长稳命令见
+[`packaging/windows/README.md`](packaging/windows/README.md)。
+
 ## Windows CAN 依赖
 
 现有实车脚本验证过以下版本：

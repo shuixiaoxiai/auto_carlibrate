@@ -1,0 +1,52 @@
+name: windows-build
+
+on:
+  workflow_dispatch:
+    inputs:
+      stability_seconds:
+        description: "Mock stability duration in seconds"
+        required: true
+        default: "7200"
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+          architecture: "x64"
+          cache: "pip"
+
+      - name: Install Inno Setup
+        shell: powershell
+        run: choco install innosetup --yes --no-progress
+
+      - name: Build and verify Windows bundle
+        shell: powershell
+        run: packaging\windows\build.ps1
+
+      - name: Mock stability gate
+        shell: powershell
+        run: |
+          $Duration = "${{ github.event.inputs.stability_seconds }}"
+          if ([string]::IsNullOrWhiteSpace($Duration)) { $Duration = "7200" }
+          python tools\stability_smoke.py `
+            --duration-seconds $Duration `
+            --report dist\acceptance\mock-stability.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BLECalibration-${{ github.ref_name }}-win64
+          path: |
+            dist/BLECalibration-*-win64.zip
+            dist/BLECalibration-*-Setup.exe
+            dist/acceptance/**
+          if-no-files-found: error

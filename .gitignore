@@ -23,8 +23,10 @@ htmlcov/
 # Packaging output
 build/
 dist/
+dist-*/
 *.egg-info/
 *.spec
+!packaging/windows/ble_calibration.spec
 
 # Runtime logs and generated captures
 logs/

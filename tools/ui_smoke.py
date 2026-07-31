@@ -66,6 +66,13 @@ def main() -> int:
             assert changed.lock_summary.good == 0
             assert changed.lock_summary.poor == 8
             assert len(changed.lock_summary.untriggered_directions) == 8
+            assert changed.unlock_summary.excellent == 0
+            assert changed.unlock_summary.good == 0
+            assert changed.unlock_summary.poor == 8
+            assert len(changed.unlock_summary.untriggered_directions) == 8
+            summary_panel = window.parameter_panel.summary_panel
+            assert summary_panel.lock_card.poor_label.text() == "差 8"
+            assert summary_panel.unlock_card.poor_label.text() == "差 8"
             assert window.last_what_if_refresh_ms is not None
             assert visible_refresh_ms < args.max_refresh_ms
 
@@ -95,6 +102,14 @@ def main() -> int:
                     "poor": changed.lock_summary.poor,
                     "untriggered": len(
                         changed.lock_summary.untriggered_directions
+                    ),
+                },
+                "unlock_summary": {
+                    "excellent": changed.unlock_summary.excellent,
+                    "good": changed.unlock_summary.good,
+                    "poor": changed.unlock_summary.poor,
+                    "untriggered": len(
+                        changed.unlock_summary.untriggered_directions
                     ),
                 },
             })
