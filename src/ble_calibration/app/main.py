@@ -10,14 +10,18 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
+from ..analysis import EightDirectionRecomputeService
 from ..can.mock_source import MockCanSource
 from ..can.recording import JsonlFrameRecorder
 from ..capture.worker import CaptureWorker
-from ..cloud import CloudCodecError, decode_cloud
+from ..cloud import CloudCodecError, CloudParameters, decode_cloud
+from ..domain import CalibrationProject
 from ..domain.enums import DIRECTION_LABELS, NODE_LABELS
 from ..domain.schema import PROJECT_SCHEMA_VERSION
 from ..mock.generator import main as generate_mock_main
+from ..replay import ReplayService
 from ..session.demo import replay_manifest_session
+from ..storage import ProjectRepository, StoredProject
 from ..version import __version__
 
 
@@ -78,6 +82,11 @@ def build_parser() -> argparse.ArgumentParser:
         "cloud-encode",
         add_help=False,
         help="修改已存在参数并编码云推 HEX",
+    )
+    subparsers.add_parser(
+        "project-demo",
+        add_help=False,
+        help="创建、关闭、重开并离线重算一个 Mock 项目",
     )
     return parser
 
@@ -209,6 +218,60 @@ def _cloud_encode_main(argv: Sequence[str]) -> int:
     return 0
 
 
+def _project_demo_main(argv: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="ble-calibration project-demo",
+        description="验证项目保存、重开、离线回放和八方向重算闭环",
+    )
+    parser.add_argument("--input", type=Path, required=True, help="输入 CAN JSONL")
+    parser.add_argument("--manifest", type=Path, required=True, help="方向 manifest")
+    parser.add_argument("--database", type=Path, required=True, help="SQLite 项目库")
+    parser.add_argument("--name", default="Mock 八方向项目", help="项目名称")
+    args = parser.parse_args(argv)
+
+    try:
+        controller, _ = replay_manifest_session(args.input, args.manifest)
+        manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
+        thresholds = manifest["reference_thresholds"]
+        parameters = CloudParameters(
+            unlock_thresholds=tuple(int(value) for value in thresholds["unlock"]),
+            lock_thresholds=tuple(int(value) for value in thresholds["lock"]),
+        )
+        project = CalibrationProject(
+            name=args.name,
+            directions=tuple(controller.records),
+        )
+        stored = StoredProject(
+            project=project,
+            capture_path=str(args.input.resolve()),
+            capture_format="jsonl",
+        )
+
+        with ProjectRepository(args.database) as repository:
+            repository.save_project(stored)
+
+        with ProjectRepository(args.database) as repository:
+            reopened = repository.load_project(project.project_id)
+            datasets = ReplayService().rebuild_project(reopened)
+            result = EightDirectionRecomputeService().recompute(
+                parameters,
+                datasets,
+                use_actual_action_times=True,
+            )
+            repository.save_analysis(project.project_id, result, cloud_hex=None)
+    except (OSError, ValueError, KeyError, RuntimeError) as error:
+        print(f"项目闭环失败: {error}", file=sys.stderr)
+        return 1
+
+    print(
+        f"项目闭环完成: ID={project.project_id} "
+        f"方向={len(datasets)} 重算={result.elapsed_ms:.2f}ms "
+        f"闭锁优秀率={result.lock_summary.excellent_rate_percent:.1f}% "
+        f"解锁优秀率={result.unlock_summary.excellent_rate_percent:.1f}%"
+    )
+    return 0
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments and arguments[0] == "generate-mock":
@@ -221,6 +284,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _cloud_decode_main(arguments[1:])
     if arguments and arguments[0] == "cloud-encode":
         return _cloud_encode_main(arguments[1:])
+    if arguments and arguments[0] == "project-demo":
+        return _project_demo_main(arguments[1:])
 
     parser = build_parser()
     args = parser.parse_args(arguments or ["info"])

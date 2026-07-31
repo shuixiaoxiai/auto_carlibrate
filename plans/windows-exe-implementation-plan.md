@@ -1,12 +1,12 @@
 # 汽车数字钥匙 BLE 标定工具 Windows EXE 落地计划
 
-> 执行状态：第 1～5 步已完成，八方向距离/统计/200 ms 重算核心已提前实现；
-> 下一步为“完成项目存储和离线回放”。
+> 执行状态：第 1～6 步已完成，下一步为“开发 Windows 原生界面”。
 > 第 1 步评审材料见 [`plans/step-01/`](step-01/README.md)，第 2 步验收记录见
 > [`plans/step-02/`](step-02/README.md)，第 3 步验收记录见
 > [`plans/step-03/`](step-03/README.md)，第 4 步验收记录见
 > [`plans/step-04/`](step-04/README.md)，第 5 步验收记录见
-> [`plans/step-05/`](step-05/README.md)。
+> [`plans/step-05/`](step-05/README.md)，第 6 步验收记录见
+> [`plans/step-06/`](step-06/README.md)。
 
 ## 1. 项目目标
 
@@ -398,6 +398,8 @@ distance_at_action
 预计时间：4～5 天。
 
 ### 第 6 步：完成项目存储和离线回放
+
+状态：**已完成（2026-07-30）**
 
 工作内容：
 

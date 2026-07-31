@@ -8,6 +8,7 @@ from pathlib import Path
 from ble_calibration.app.main import main
 from ble_calibration.domain.models import CanFrame
 from ble_calibration.mock.generator import MockConfig, generate_mock_session
+from ble_calibration.storage import ProjectRepository
 from tools.can_protocol import decode_frame as compatibility_decode_frame
 from ble_calibration.can.protocol import decode_frame as canonical_decode_frame
 from tools.parse_cloud import parse_cloud
@@ -131,6 +132,42 @@ class ApplicationShellTests(unittest.TestCase):
         self.assertEqual(encode_result, 0)
         self.assertEqual(parse_cloud(encoded)["bleUnlockThred"][0], -63)
         self.assertEqual(parse_cloud(encoded)["quickLock"]["weakFront"], 2)
+
+    def test_project_demo_persists_reopens_replays_and_recomputes(self) -> None:
+        frames, manifest = generate_mock_session(MockConfig(seed=20260730))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = Path(temp_dir) / "input.jsonl"
+            manifest_path = Path(temp_dir) / "manifest.json"
+            database_path = Path(temp_dir) / "projects.sqlite3"
+            input_path.write_text(
+                "".join(json.dumps(frame.to_json_record()) + "\n" for frame in frames),
+                encoding="utf-8",
+            )
+            manifest_path.write_text(
+                json.dumps(manifest, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            with contextlib.redirect_stdout(io.StringIO()):
+                result = main([
+                    "project-demo",
+                    "--input",
+                    str(input_path),
+                    "--manifest",
+                    str(manifest_path),
+                    "--database",
+                    str(database_path),
+                ])
+
+            with ProjectRepository(database_path) as repository:
+                projects = repository.list_projects()
+                analysis = repository.latest_analysis(projects[0].project_id)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(len(projects), 1)
+        self.assertEqual(projects[0].direction_count, 8)
+        self.assertEqual(analysis.payload["lock_summary"]["total"], 8)
+        self.assertEqual(analysis.payload["unlock_summary"]["total"], 8)
 
 
 if __name__ == "__main__":

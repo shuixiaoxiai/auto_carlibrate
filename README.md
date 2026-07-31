@@ -22,6 +22,10 @@ python run_app.py cloud-decode "00C2C7..."
 python run_app.py cloud-encode "00C2C7..." \
   --unlock -63 -58 -55 -67 -64 \
   --set quickLock.weakFront=2
+python run_app.py project-demo \
+  --input mock_data/eight_directions.jsonl \
+  --manifest mock_data/eight_directions.manifest.json \
+  --database data/projects.sqlite3
 ```
 
 以标准包方式运行：
@@ -64,7 +68,9 @@ src/ble_calibration/
   domain/       时间、节点、方向、事件、项目等核心模型
   mock/         确定性八方向 Mock CAN
   processing/   五节点时间对齐、stale 和请求边沿
+  replay/       JSONL/BLF 离线回放与方向数据重建
   session/      方向选择、记录、距离和完成状态机
+  storage/      SQLite 项目、历史、分析及异常恢复
   strategy/     基础规则和 5 套附加策略仿真
 tools/          兼容工具入口和实车参考脚本
 tests/          自动化测试

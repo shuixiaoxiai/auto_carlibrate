@@ -127,6 +127,24 @@ class RecomputeServiceTests(unittest.TestCase):
         self.assertEqual(len(result.lock_summary.untriggered_directions), 8)
         self.assertEqual(len(result.unlock_summary.untriggered_directions), 8)
 
+    def test_what_if_update_recomputes_grade_summaries_together(self) -> None:
+        document = decode_cloud(SAMPLE_CLOUD_HEX).with_updates(
+            unlock_thresholds=REFERENCE_UNLOCK_THRESHOLDS,
+            lock_thresholds=REFERENCE_LOCK_THRESHOLDS,
+        )
+        session = WhatIfSession(document, self.datasets)
+        baseline = session.recompute()
+        changed = session.apply_updates(
+            lock_thresholds=(-100, -100, -100, -100, -100),
+        )
+
+        self.assertEqual(baseline.lock_summary.excellent, 5)
+        self.assertEqual(changed.lock_summary.excellent, 0)
+        self.assertEqual(changed.lock_summary.good, 0)
+        self.assertEqual(changed.lock_summary.poor, 8)
+        self.assertEqual(len(changed.lock_summary.untriggered_directions), 8)
+        self.assertEqual(changed.unlock_summary.total, 8)
+
     def test_threshold_and_strategy_updates_finish_under_200_ms(self) -> None:
         document = decode_cloud(SAMPLE_CLOUD_HEX).with_updates(
             unlock_thresholds=REFERENCE_UNLOCK_THRESHOLDS,
