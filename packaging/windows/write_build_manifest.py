@@ -6,14 +6,13 @@ import argparse
 import hashlib
 import json
 import platform
+import re
 import subprocess
 import struct
 from datetime import datetime, timezone
 from importlib import metadata
 from pathlib import Path
 from typing import Dict, Iterable, Optional
-
-from ble_calibration.version import __version__
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -45,6 +44,15 @@ def _package_versions(names: Iterable[str]) -> Dict[str, Optional[str]]:
         except metadata.PackageNotFoundError:
             versions[name] = None
     return versions
+
+
+def _application_version(project_root: Path = PROJECT_ROOT) -> str:
+    version_path = project_root / "src" / "ble_calibration" / "version.py"
+    text = version_path.read_text(encoding="utf-8")
+    match = re.search(r'__version__ = "([^"]+)"', text)
+    if match is None:
+        raise RuntimeError(f"cannot read application version from {version_path}")
+    return match.group(1)
 
 
 def _source_revision(project_root: Path = PROJECT_ROOT) -> Optional[str]:
@@ -109,6 +117,20 @@ def build_manifest(
     for name in required_acceptance:
         path = acceptance_dir / name
         acceptance[name] = _artifact(path)
+    result_names = (
+        "analysis.json",
+        "source-ui.json",
+        "manual-workflow.json",
+        "live-workflow.json",
+        "zlg-bundle.json",
+    )
+    acceptance_results = {}
+    for name in result_names:
+        path = acceptance_dir / name
+        if name in acceptance:
+            acceptance_results[name] = json.loads(
+                path.read_text(encoding="utf-8")
+            )
 
     artifacts = {
         "onedir_exe": _artifact(onedir_exe),
@@ -120,7 +142,7 @@ def build_manifest(
     return {
         "schema": "ble-calibration-build-manifest/v1",
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        "application_version": __version__,
+        "application_version": _application_version(),
         "source_revision": _source_revision(),
         "platform": platform.platform(),
         "machine": platform.machine(),
@@ -134,6 +156,7 @@ def build_manifest(
         "artifacts": artifacts,
         "native_drivers": [_artifact(path) for path in driver_paths],
         "acceptance": acceptance,
+        "acceptance_results": acceptance_results,
     }
 
 

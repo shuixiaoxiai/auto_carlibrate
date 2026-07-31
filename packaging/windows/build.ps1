@@ -120,7 +120,22 @@ if (-not $SkipTests) {
 }
 python @ManifestArguments
 
+$AuditArguments = @(
+    "packaging\windows\audit_build_manifest.py",
+    "--manifest", "dist\acceptance\build-manifest.json",
+    "--output", "dist\acceptance\release-audit.json",
+    "--require-windows"
+)
+if ($IncludeZlgcan) {
+    $AuditArguments += "--require-zlgcan"
+}
+if (-not $SkipTests) {
+    $AuditArguments += "--require-source-tests"
+}
+python @AuditArguments
+
 Write-Host "Windows build complete."
 Write-Host "Onedir:  dist\BLECalibration\BLECalibration.exe"
 Write-Host "Archive: $Archive"
 Write-Host "Manifest: dist\acceptance\build-manifest.json"
+Write-Host "Audit:    dist\acceptance\release-audit.json"

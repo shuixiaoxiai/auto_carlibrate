@@ -57,7 +57,11 @@ class WindowsBuildManifestTests(unittest.TestCase):
                 "manual.png",
                 "live-zlg.png",
             ):
-                (acceptance / name).write_bytes(name.encode("utf-8"))
+                path = acceptance / name
+                if path.suffix == ".json":
+                    path.write_text('{"ok": true}\n', encoding="utf-8")
+                else:
+                    path.write_bytes(name.encode("utf-8"))
 
             manifest = build_manifest_module.build_manifest(
                 onedir_exe=executable,
@@ -72,6 +76,7 @@ class WindowsBuildManifestTests(unittest.TestCase):
             manifest["schema"],
             "ble-calibration-build-manifest/v1",
         )
+        self.assertIn("source-ui.json", manifest["acceptance_results"])
         self.assertEqual(manifest["python_bits"], 64)
         self.assertTrue(manifest["include_zlgcan"])
         self.assertTrue(manifest["source_tests_run"])
