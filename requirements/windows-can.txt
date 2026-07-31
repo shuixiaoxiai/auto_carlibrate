@@ -1,0 +1,3 @@
+# Versions verified by the existing tools/can_read_save.py environment.
+python-can==4.6.1
+zlgcan==0.3.0

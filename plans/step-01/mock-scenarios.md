@@ -9,7 +9,8 @@
 ## 1. 设计原则
 
 - Mock 生成原始 CAN 帧，不直接生成业务事件。
-- 所有 Mock 帧使用 `tools/can_protocol.py` 编码和解码。
+- 所有 Mock 帧使用 `src/ble_calibration/can/protocol.py` 编码和解码；
+  `tools/can_protocol.py` 仅保留兼容入口。
 - 正常场景使用确定性随机种子。
 - manifest 提供测试期望，但应用不能读取 manifest 代替业务计算。
 - 每个异常场景只改变一个主要变量，方便定位失败原因。

@@ -1,7 +1,8 @@
 # 汽车数字钥匙 BLE 标定工具 Windows EXE 落地计划
 
-> 执行状态：第 1 步已完成，下一步为“建立工程和核心模型”。评审材料见
-> [`plans/step-01/`](step-01/README.md)。
+> 执行状态：第 1～2 步已完成，下一步为“建立 CAN 数据源抽象与录制能力”。
+> 第 1 步评审材料见 [`plans/step-01/`](step-01/README.md)，第 2 步验收记录见
+> [`plans/step-02/`](step-02/README.md)。
 
 ## 1. 项目目标
 
@@ -87,7 +88,8 @@ CAN 设备配置沿用脚本：
 
 ### 4.1 Mock 数据
 
-`tools/mock_can_generate.py` 使用与实车采集相同的四个 CAN ID 和字节位置，生成：
+`src/ble_calibration/mock/generator.py` 使用与实车采集相同的四个 CAN ID 和字节位置，
+并通过 `tools/mock_can_generate.py` 保留兼容命令，生成：
 
 - 主、前、后、左、右 5 节点 RSSI。
 - `0x55A` 闭锁请求 `2` 和解锁请求 `1`。
@@ -99,7 +101,8 @@ CAN 设备配置沿用脚本：
 - 描述方向区间、事件和生成参数的 manifest JSON。
 
 开发和自动化测试以 JSONL 为主；BLF 用于验证正式回放链路。Mock 帧必须经过
-`tools/can_protocol.py` 的同一套解码函数，不允许为 Mock 单独绕过协议层。
+`src/ble_calibration/can/protocol.py` 的同一套解码函数，不允许为 Mock 单独绕过协议层。
+`tools/can_protocol.py` 仅作为旧脚本兼容包装。
 
 ## 5. 数据处理原则
 
@@ -258,6 +261,8 @@ tools/
 预计时间：1～2 天。
 
 ### 第 2 步：建立工程和核心模型
+
+状态：**已完成（2026-07-30）**
 
 工作内容：
 
@@ -613,8 +618,8 @@ distance_at_action
 ## 12. 参考
 
 - `tools/can_read_save.py`
-- `tools/can_protocol.py`
-- `tools/mock_can_generate.py`
+- `src/ble_calibration/can/protocol.py`（`tools/can_protocol.py` 为兼容入口）
+- `src/ble_calibration/mock/generator.py`（`tools/mock_can_generate.py` 为兼容入口）
 - `tools/parse_cloud.py`
 - python-can 插件接口：<https://python-can.readthedocs.io/en/main/plugin-interface.html>
 - python-can BLF 实现：<https://python-can.readthedocs.io/en/stable/_modules/can/io/blf.html>

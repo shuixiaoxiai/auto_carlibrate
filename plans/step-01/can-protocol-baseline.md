@@ -4,7 +4,9 @@
 
 版本：1.1
 
-来源：`tools/can_read_save.py`、`tools/can_protocol.py`
+来源：`tools/can_read_save.py`、`src/ble_calibration/can/protocol.py`
+
+兼容入口：`tools/can_protocol.py`
 
 ## 1. 节点约定
 
