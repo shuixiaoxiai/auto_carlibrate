@@ -1,6 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 
 from pathlib import Path
+import os
 import sys
 
 from PyInstaller.utils.hooks import collect_all, copy_metadata
@@ -11,17 +12,24 @@ asset_root = project_root / "build" / "windows-assets"
 
 binaries = []
 datas = []
-hiddenimports = []
+hiddenimports = [
+    "can",
+    "can.io",
+    "can.io.blf",
+]
 try:
     datas += copy_metadata("python-can")
 except Exception:
     pass
 
-for package_name in ("zlgcan",):
+if os.environ.get("BLE_CALIBRATION_INCLUDE_ZLGCAN") == "1":
     try:
-        package_datas, package_binaries, package_hidden = collect_all(package_name)
-    except Exception:
-        continue
+        package_datas, package_binaries, package_hidden = collect_all("zlgcan")
+        package_datas += copy_metadata("zlgcan")
+    except Exception as error:
+        raise RuntimeError(
+            "ZLG packaging requested but zlgcan could not be collected"
+        ) from error
     datas += package_datas
     binaries += package_binaries
     hiddenimports += package_hidden

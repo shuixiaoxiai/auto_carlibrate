@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import platform
 import sys
@@ -87,6 +88,11 @@ def build_parser() -> argparse.ArgumentParser:
         "project-demo",
         add_help=False,
         help="创建、关闭、重开并离线重算一个 Mock 项目",
+    )
+    subparsers.add_parser(
+        "zlg-bundle-check",
+        add_help=False,
+        help="检查冻结包中的 zlgcan 后端，不打开硬件",
     )
     subparsers.add_parser(
         "gui",
@@ -277,6 +283,59 @@ def _project_demo_main(argv: Sequence[str]) -> int:
     return 0
 
 
+def zlg_runtime_report(import_module=importlib.import_module) -> Dict[str, Any]:
+    try:
+        can_module = import_module("can")
+        zlgcan_module = import_module("zlgcan")
+        zlgcan_api = import_module("zlgcan.zlgcan")
+        backend = can_module.interfaces.BACKENDS.get("zlgcan")
+        device_type = getattr(
+            zlgcan_api.ZCANDeviceType,
+            "ZCAN_USBCANFD_200U",
+        )
+        runtime_root = Path(
+            getattr(sys, "_MEIPASS", Path(zlgcan_module.__file__).parent)
+        )
+        drivers = sorted(
+            str(path.resolve())
+            for path in runtime_root.rglob("*clgcan_driver*.pyd")
+            if path.is_file()
+        )
+        return {
+            "ok": backend is not None,
+            "python_can_version": _installed_version("python-can"),
+            "zlgcan_version": _installed_version("zlgcan"),
+            "backend": None if backend is None else list(backend),
+            "device_type": str(device_type),
+            "native_drivers": drivers,
+        }
+    except Exception as error:
+        return {
+            "ok": False,
+            "error": f"{type(error).__name__}: {error}",
+            "python_can_version": _installed_version("python-can"),
+            "zlgcan_version": _installed_version("zlgcan"),
+            "backend": None,
+            "native_drivers": [],
+        }
+
+
+def _zlg_bundle_check_main(argv: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="ble-calibration zlg-bundle-check",
+        description="不打开 CAN 设备，检查冻结包中的 ZLG Python 后端",
+    )
+    parser.add_argument("--output", type=Path, required=True)
+    args = parser.parse_args(argv)
+    report = zlg_runtime_report()
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    args.output.write_text(
+        json.dumps(report, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return 0 if report["ok"] else 1
+
+
 def _gui_main(argv: Sequence[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="ble-calibration gui",
@@ -385,6 +444,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _cloud_encode_main(arguments[1:])
     if arguments and arguments[0] == "project-demo":
         return _project_demo_main(arguments[1:])
+    if arguments and arguments[0] == "zlg-bundle-check":
+        return _zlg_bundle_check_main(arguments[1:])
     if arguments and arguments[0] == "gui":
         return _gui_main(arguments[1:])
 

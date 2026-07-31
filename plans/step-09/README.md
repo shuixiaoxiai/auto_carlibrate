@@ -19,6 +19,8 @@
   - ZLG 设备配置、连接和方向记录工作区可启动。
 - 模拟实时源自动完成 8 方向工作流，验证一次连接跨方向复用、配置持久化、方向原始文件
   和闭锁/解锁汇总。
+- 构建后生成 `build-manifest.json`，记录 EXE、ZIP、Setup、验收截图和
+  `clgcan_driver.pyd` 的 SHA-256、大小及环境版本。
 - 两小时 Mock CAN 循环采集、解码、What-if 重算和内存门禁脚本。
 - Windows 2022、Python 3.9 x64 构建和产物上传工作流。
 
@@ -37,7 +39,7 @@ PyInstaller spec 生成本机 onedir，并启动冻结后的可执行文件验�
 冻结应用 onedir：约 116 MB
 ```
 
-当前完整自动化回归为 78 个测试。冻结应用验收额外生成 `analysis.png`、`manual.png`
+当前完整自动化回归为 83 个测试。冻结应用验收额外生成 `analysis.png`、`manual.png`
 和 `live-zlg.png` 三类界面证据。
 
 3 秒快速长稳预检处理 10,720 帧、完成 30 次八方向重算，最大核心重算 82.270 ms，

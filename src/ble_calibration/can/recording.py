@@ -114,7 +114,11 @@ class RotatingBlfRecorder:
                 bitrate_switch=frame.bitrate_switch,
                 is_extended_id=frame.arbitration_id > 0x7FF,
             )
-            self._writer.write(message)
+            receive = getattr(self._writer, "on_message_received", None)
+            if callable(receive):
+                receive(message)
+            else:
+                self._writer.write(message)
             self.current_frame_count += 1
             self.total_frame_count += 1
 

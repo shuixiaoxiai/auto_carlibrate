@@ -284,7 +284,7 @@ def write_blf(
     writer = can.BLFWriter(str(path), channel=frames[0].channel if frames else 0)
     try:
         for frame in frames:
-            writer.write(can.Message(
+            message = can.Message(
                 timestamp=start_epoch_s + frame.timestamp,
                 arbitration_id=frame.arbitration_id,
                 data=frame.data,
@@ -292,7 +292,12 @@ def write_blf(
                 is_fd=frame.is_fd,
                 bitrate_switch=frame.bitrate_switch,
                 is_extended_id=False,
-            ))
+            )
+            receive = getattr(writer, "on_message_received", None)
+            if callable(receive):
+                receive(message)
+            else:
+                writer.write(message)
     finally:
         writer.stop()
 

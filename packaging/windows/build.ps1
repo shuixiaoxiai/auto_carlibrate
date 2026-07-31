@@ -15,6 +15,10 @@ $PythonBits = (python -c "import struct; print(struct.calcsize('P') * 8)").Trim(
 if ($PythonBits -ne "64") {
     throw "The build must use 64-bit Python; current interpreter is $PythonBits-bit."
 }
+$PythonVersion = (python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')").Trim()
+if ($PythonVersion -ne "3.9") {
+    throw "The build must use CPython 3.9 for the verified clgcan_driver.pyd ABI; current interpreter is $PythonVersion."
+}
 
 python -m pip install --upgrade pip
 python -m pip install -e .
@@ -34,6 +38,10 @@ if (-not $SkipTests) {
 }
 
 python packaging\windows\generate_assets.py
+$env:BLE_CALIBRATION_INCLUDE_ZLGCAN = "0"
+if ($IncludeZlgcan) {
+    $env:BLE_CALIBRATION_INCLUDE_ZLGCAN = "1"
+}
 python -m PyInstaller `
     --noconfirm `
     --clean `
@@ -41,9 +49,15 @@ python -m PyInstaller `
     --workpath build\pyinstaller-windows `
     packaging\windows\ble_calibration.spec
 
-python packaging\windows\verify_bundle.py `
-    --exe dist\BLECalibration\BLECalibration.exe `
-    --output-dir dist\acceptance
+$VerifyArguments = @(
+    "packaging\windows\verify_bundle.py",
+    "--exe", "dist\BLECalibration\BLECalibration.exe",
+    "--output-dir", "dist\acceptance"
+)
+if ($IncludeZlgcan) {
+    $VerifyArguments += "--expect-zlgcan"
+}
+python @VerifyArguments
 
 if ($IncludeZlgcan) {
     $BundledDriver = Get-ChildItem `
@@ -79,6 +93,25 @@ if (-not $SkipInstaller) {
     & $IsccPath "/DAppVersion=$Version" packaging\windows\installer.iss
 }
 
+$ManifestArguments = @(
+    "packaging\windows\write_build_manifest.py",
+    "--onedir-exe", "dist\BLECalibration\BLECalibration.exe",
+    "--archive", $Archive,
+    "--acceptance-dir", "dist\acceptance",
+    "--output", "dist\acceptance\build-manifest.json"
+)
+if (-not $SkipInstaller) {
+    $ManifestArguments += @(
+        "--installer",
+        "dist\BLECalibration-$Version-Setup.exe"
+    )
+}
+if ($IncludeZlgcan) {
+    $ManifestArguments += "--include-zlgcan"
+}
+python @ManifestArguments
+
 Write-Host "Windows build complete."
 Write-Host "Onedir:  dist\BLECalibration\BLECalibration.exe"
 Write-Host "Archive: $Archive"
+Write-Host "Manifest: dist\acceptance\build-manifest.json"

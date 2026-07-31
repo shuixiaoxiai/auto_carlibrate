@@ -13,6 +13,9 @@ CPython 3.9 64 位匹配的 `clgcan_driver.pyd`。构建脚本不会替换这套
 的依赖；请在能运行 `tools/can_read_save.py` 的 Windows 环境中使用
 `-IncludeZlgcan`。
 
+`python-can` 会在两种模式下都明确收集，以支持 BLF 保存和回放；`zlgcan` 只在传入
+`-IncludeZlgcan` 时收集，避免“机器上碰巧安装了包”导致无硬件构建结果不确定。
+
 ## 生成无硬件候选包
 
 在仓库根目录的 PowerShell 中执行：
@@ -24,13 +27,15 @@ packaging\windows\build.ps1
 脚本依次完成：
 
 1. 校验 PowerShell 和 Python 都是 64 位。
-2. 安装应用、固定构建依赖和 `python-can==4.6.1`。
-3. 运行 78 个单元测试、Qt What-if、Mock 手动采集和模拟 ZLG 持久连接工作流测试。
-4. 生成 ICO 和 Windows 版本资源。
-5. 生成 PyInstaller onedir 应用。
-6. 启动冻结后的 EXE，验证 8 个方向和优良差汇总随 What-if 同步重算，并验证
-   Mock 手动工作区和 ZLG 设备工作区均可打开。
-7. 生成 ZIP 和 Inno Setup 安装包。
+2. 校验当前解释器为与已验证原生扩展匹配的 CPython 3.9。
+3. 安装应用、固定构建依赖和 `python-can==4.6.1`。
+4. 运行 83 个单元测试、Qt What-if、Mock 手动采集和模拟 ZLG 持久连接工作流测试。
+5. 生成 ICO 和 Windows 版本资源。
+6. 生成 PyInstaller onedir 应用。
+7. 启动冻结后的 EXE，先生成 BLF 验证 `python-can` 已正确收集，再验证 8 个方向和
+   优良差汇总随 What-if 同步重算，并验证 Mock 手动工作区和 ZLG 设备工作区均可打开。
+8. 生成 ZIP 和 Inno Setup 安装包。
+9. 为 EXE、ZIP、安装包、原生 `.pyd` 和验收证据生成 SHA-256 构建清单。
 
 产物：
 
@@ -42,6 +47,9 @@ dist\acceptance\analysis.json
 dist\acceptance\analysis.png
 dist\acceptance\manual.png
 dist\acceptance\live-zlg.png
+dist\acceptance\bundle-can.blf
+dist\acceptance\bundle-can.manifest.json
+dist\acceptance\build-manifest.json
 ```
 
 `analysis.json` 必须记录：
@@ -60,7 +68,13 @@ packaging\windows\build.ps1 -IncludeZlgcan
 ```
 
 脚本会在打包前校验 `zlgcan==0.3.0` 和 `clgcan_driver.pyd`，并在打包后再次检查
-onedir 中确实包含该 `.pyd`。任一检查失败都不会产出通过状态。
+onedir 中确实包含该 `.pyd`。冻结后的 EXE 还会执行一次不打开硬件的后端自检，确认
+`python-can` 能发现 `zlgcan` 入口、`ZCAN_USBCANFD_200U` 枚举可导入，并生成
+`dist\acceptance\zlg-bundle.json`。任一检查失败都不会产出通过状态。
+
+`build-manifest.json` 中的 `include_zlgcan` 必须为 `true`，`native_drivers` 必须列出
+`clgcan_driver.pyd`，并记录 EXE/ZIP/Setup 的绝对路径、大小和 SHA-256。该文件用于把
+Windows 构建结果回传后核对产物，而不是只凭控制台的“构建成功”判断。
 
 安装后的 `BLECalibration.exe` 无参数启动时默认进入 ZLG 实车工作区。连接一次设备后，
 8 个方向共享同一个实时接收线程；每个方向开始时单独创建 BLF，手动结束后关闭该方向

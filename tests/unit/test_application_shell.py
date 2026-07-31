@@ -4,8 +4,9 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
-from ble_calibration.app.main import main
+from ble_calibration.app.main import main, zlg_runtime_report
 from ble_calibration.domain.models import CanFrame
 from ble_calibration.mock.generator import MockConfig, generate_mock_session
 from ble_calibration.storage import ProjectRepository
@@ -29,6 +30,51 @@ class ApplicationShellTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(len(info["directions"]), 8)
         self.assertEqual(len(info["nodes"]), 5)
+
+    def test_zlg_runtime_report_handles_missing_dependency(self) -> None:
+        def missing_import(name):
+            raise ImportError(f"{name} is unavailable")
+
+        report = zlg_runtime_report(missing_import)
+
+        self.assertFalse(report["ok"])
+        self.assertIn("ImportError", report["error"])
+        self.assertEqual(report["native_drivers"], [])
+
+    def test_zlg_runtime_report_finds_registered_backend(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            package_dir = root / "zlgcan"
+            package_dir.mkdir()
+            package_file = package_dir / "__init__.py"
+            package_file.write_text("", encoding="utf-8")
+            modules = {
+                "can": SimpleNamespace(
+                    interfaces=SimpleNamespace(
+                        BACKENDS={
+                            "zlgcan": (
+                                "zlgcan.can.interfaces.zlgcan",
+                                "ZCanBus",
+                            )
+                        }
+                    )
+                ),
+                "zlgcan": SimpleNamespace(__file__=str(package_file)),
+                "zlgcan.zlgcan": SimpleNamespace(
+                    ZCANDeviceType=SimpleNamespace(
+                        ZCAN_USBCANFD_200U=41,
+                    )
+                ),
+            }
+
+            report = zlg_runtime_report(modules.__getitem__)
+
+        self.assertTrue(report["ok"])
+        self.assertEqual(
+            report["backend"],
+            ["zlgcan.can.interfaces.zlgcan", "ZCanBus"],
+        )
+        self.assertEqual(report["device_type"], "41")
 
     def test_generate_mock_command_writes_eight_directions(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

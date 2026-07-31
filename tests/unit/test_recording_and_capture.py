@@ -20,7 +20,7 @@ class FakeBlfWriter:
         self.stopped = False
         self.__class__.instances.append(self)
 
-    def write(self, message):
+    def on_message_received(self, message):
         self.messages.append(message)
 
     def stop(self):
@@ -67,6 +67,36 @@ class RecordingAndCaptureTests(unittest.TestCase):
             ["capture_20260730.blf", "capture_20260730_2.blf", "capture_20260730_3.blf"],
         )
         self.assertTrue(all(item.stopped for item in FakeBlfWriter.instances))
+
+    def test_python_can_461_blf_writer_and_reader_round_trip(self) -> None:
+        try:
+            import can
+        except ImportError:
+            self.skipTest("python-can is not installed")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            recorder = RotatingBlfRecorder(
+                Path(temp_dir) / "capture.blf",
+                channel=0,
+                today=lambda: date(2026, 7, 31),
+            )
+            recorder.write(
+                CanFrame(
+                    1_700_000_001.25,
+                    0x629,
+                    b"\x00\x01\x02\x03\xC4",
+                    channel=0,
+                    is_fd=True,
+                    bitrate_switch=True,
+                )
+            )
+            path = recorder.paths[0]
+            recorder.stop()
+            messages = list(can.BLFReader(str(path)))
+
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0].arbitration_id, 0x629)
+        self.assertEqual(bytes(messages[0].data), b"\x00\x01\x02\x03\xC4")
+        self.assertTrue(messages[0].is_fd)
 
     def test_capture_worker_closes_source_and_recorder(self) -> None:
         frames = [CanFrame(index * 0.1, 0x100 + index, bytes([index])) for index in range(5)]

@@ -116,7 +116,11 @@ class BlfRotatingWriter:
         self.frame_count = 0
 
     def write(self, msg: can.Message) -> None:
-        self.writer.write(msg)
+        receive = getattr(self.writer, "on_message_received", None)
+        if callable(receive):
+            receive(msg)
+        else:
+            self.writer.write(msg)
         self.frame_count += 1
         if self.frame_count >= self.max_frames:
             self.seq += 1

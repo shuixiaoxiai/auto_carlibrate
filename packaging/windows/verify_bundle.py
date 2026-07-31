@@ -11,7 +11,13 @@ import tempfile
 from pathlib import Path
 
 
-def run_and_require_screenshot(command, screenshot: Path, timeout: float) -> None:
+def run_and_require_artifact(
+    command,
+    artifact: Path,
+    timeout: float,
+    *,
+    minimum_size: int,
+) -> None:
     environment = dict(os.environ)
     environment["QT_QPA_PLATFORM"] = "offscreen"
     environment.pop("PYTHONHOME", None)
@@ -26,8 +32,17 @@ def run_and_require_screenshot(command, screenshot: Path, timeout: float) -> Non
         raise RuntimeError(
             f"bundle smoke command failed with exit code {completed.returncode}"
         )
-    if not screenshot.exists() or screenshot.stat().st_size < 10_000:
-        raise RuntimeError(f"bundle did not create a valid screenshot: {screenshot}")
+    if not artifact.exists() or artifact.stat().st_size < minimum_size:
+        raise RuntimeError(f"bundle did not create a valid artifact: {artifact}")
+
+
+def run_and_require_screenshot(command, screenshot: Path, timeout: float) -> None:
+    run_and_require_artifact(
+        command,
+        screenshot,
+        timeout,
+        minimum_size=10_000,
+    )
 
 
 def main() -> int:
@@ -35,6 +50,7 @@ def main() -> int:
     parser.add_argument("--exe", type=Path, required=True)
     parser.add_argument("--timeout", type=float, default=90.0)
     parser.add_argument("--output-dir", type=Path)
+    parser.add_argument("--expect-zlgcan", action="store_true")
     args = parser.parse_args()
     executable = args.exe.resolve()
     if not executable.exists():
@@ -48,6 +64,61 @@ def main() -> int:
     with output_context as temp_dir:
         root = Path(temp_dir)
         root.mkdir(parents=True, exist_ok=True)
+        mock_blf = root / "bundle-can.blf"
+        mock_manifest = root / "bundle-can.manifest.json"
+        for stale_artifact in (mock_blf, mock_manifest):
+            if stale_artifact.exists():
+                stale_artifact.unlink()
+        run_and_require_artifact(
+            [
+                str(executable),
+                "generate-mock",
+                "--output",
+                str(mock_blf),
+                "--manifest",
+                str(mock_manifest),
+                "--format",
+                "blf",
+            ],
+            mock_blf,
+            args.timeout,
+            minimum_size=10_000,
+        )
+        if not mock_manifest.exists() or mock_manifest.stat().st_size < 1_000:
+            raise RuntimeError(
+                "packaged python-can check did not create its manifest"
+            )
+        print(f"Packaged python-can BLF artifact: {mock_blf}")
+
+        if args.expect_zlgcan:
+            zlg_report_path = root / "zlg-bundle.json"
+            if zlg_report_path.exists():
+                zlg_report_path.unlink()
+            run_and_require_artifact(
+                [
+                    str(executable),
+                    "zlg-bundle-check",
+                    "--output",
+                    str(zlg_report_path),
+                ],
+                zlg_report_path,
+                args.timeout,
+                minimum_size=100,
+            )
+            zlg_report = json.loads(
+                zlg_report_path.read_text(encoding="utf-8")
+            )
+            if (
+                not zlg_report.get("ok")
+                or zlg_report.get("zlgcan_version") != "0.3.0"
+                or not zlg_report.get("backend")
+                or not zlg_report.get("native_drivers")
+            ):
+                raise RuntimeError(
+                    f"packaged ZLG backend check failed: {zlg_report}"
+                )
+            print(f"Packaged ZLG backend report: {zlg_report_path}")
+
         analysis_screenshot = root / "analysis.png"
         analysis_report = root / "analysis.json"
         for stale_artifact in (analysis_screenshot, analysis_report):
