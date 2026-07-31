@@ -1,7 +1,7 @@
 # BLE Calibration
 
-汽车数字钥匙 BLE 标定 Windows 应用。当前已完成需求冻结，并开始建立不依赖 GUI 和
-实车的核心工程。
+汽车数字钥匙 BLE 标定 Windows 应用。当前已完成核心数据闭环、项目存储、离线回放和
+八方向桌面界面，开发与验收仍优先使用 Mock 数据。
 
 ## 本地运行
 
@@ -26,6 +26,7 @@ python run_app.py project-demo \
   --input mock_data/eight_directions.jsonl \
   --manifest mock_data/eight_directions.manifest.json \
   --database data/projects.sqlite3
+python run_app.py gui
 ```
 
 以标准包方式运行：
@@ -41,6 +42,12 @@ ble-calibration capture-mock --input mock_data/eight_directions.jsonl --speed 10
 
 ```bash
 python -m unittest discover -s tests -v
+```
+
+运行 Qt 端到端 UI 冒烟测试（支持离屏模式）：
+
+```bash
+python tools/ui_smoke.py --max-refresh-ms 200
 ```
 
 ## Windows CAN 依赖
@@ -72,6 +79,7 @@ src/ble_calibration/
   session/      方向选择、记录、距离和完成状态机
   storage/      SQLite 项目、历史、分析及异常恢复
   strategy/     基础规则和 5 套附加策略仿真
+  ui/           PySide6 参数区、统计和八方向 pyqtgraph 图表
 tools/          兼容工具入口和实车参考脚本
 tests/          自动化测试
 plans/          分步实施与验收文档

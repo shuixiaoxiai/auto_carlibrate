@@ -88,6 +88,11 @@ def build_parser() -> argparse.ArgumentParser:
         add_help=False,
         help="创建、关闭、重开并离线重算一个 Mock 项目",
     )
+    subparsers.add_parser(
+        "gui",
+        add_help=False,
+        help="启动八方向桌面界面",
+    )
     return parser
 
 
@@ -272,6 +277,45 @@ def _project_demo_main(argv: Sequence[str]) -> int:
     return 0
 
 
+def _gui_main(argv: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="ble-calibration gui",
+        description="启动 Windows 风格的八方向 BLE 标定桌面界面",
+    )
+    parser.add_argument("--input", type=Path, help="可选 Mock CAN JSONL")
+    parser.add_argument("--manifest", type=Path, help="与 JSONL 对应的 manifest")
+    parser.add_argument("--seed", type=int, default=20260730, help="内置 Mock 随机种子")
+    parser.add_argument("--screenshot", type=Path, help="保存启动界面截图后退出")
+    parser.add_argument(
+        "--parameters-hidden",
+        action="store_true",
+        help="启动时隐藏 What-if 参数，用于查看宽幅图表",
+    )
+    parser.add_argument(
+        "--quit-after-ms",
+        type=int,
+        default=None,
+        help="自动退出时间，仅用于自动化验收",
+    )
+    args = parser.parse_args(argv)
+    if (args.input is None) != (args.manifest is None):
+        parser.error("--input and --manifest must be provided together")
+    try:
+        from ..ui.application import run_ui
+
+        return run_ui(
+            frame_path=args.input,
+            manifest_path=args.manifest,
+            seed=args.seed,
+            screenshot_path=args.screenshot,
+            quit_after_ms=args.quit_after_ms,
+            parameters_hidden=args.parameters_hidden,
+        )
+    except (ImportError, OSError, ValueError, KeyError) as error:
+        print(f"界面启动失败: {error}", file=sys.stderr)
+        return 1
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments and arguments[0] == "generate-mock":
@@ -286,6 +330,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         return _cloud_encode_main(arguments[1:])
     if arguments and arguments[0] == "project-demo":
         return _project_demo_main(arguments[1:])
+    if arguments and arguments[0] == "gui":
+        return _gui_main(arguments[1:])
 
     parser = build_parser()
     args = parser.parse_args(arguments or ["info"])
