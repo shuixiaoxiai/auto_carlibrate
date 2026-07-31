@@ -10,6 +10,10 @@
 ```bash
 python run_app.py info
 python run_app.py generate-mock --output mock_data/eight_directions.jsonl
+python run_app.py capture-mock \
+  --input mock_data/eight_directions.jsonl \
+  --speed 10 \
+  --output mock_data/captured.jsonl
 ```
 
 以标准包方式运行：
@@ -18,6 +22,7 @@ python run_app.py generate-mock --output mock_data/eight_directions.jsonl
 python -m pip install -e .
 ble-calibration info
 ble-calibration generate-mock --output mock_data/eight_directions.jsonl
+ble-calibration capture-mock --input mock_data/eight_directions.jsonl --speed 10
 ```
 
 运行自动化测试：
@@ -43,6 +48,7 @@ python -m unittest discover -s tests -v
 src/ble_calibration/
   app/          应用入口和后续 UI 组合
   can/          共用 CAN 协议及后续数据源
+  capture/      独立采集线程和生命周期
   config/       配置加载、验证和保存
   diagnostics/  日志和诊断
   domain/       时间、节点、方向、事件、项目等核心模型

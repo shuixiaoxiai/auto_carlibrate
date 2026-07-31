@@ -10,6 +10,9 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any, Dict, Optional, Sequence
 
+from ..can.mock_source import MockCanSource
+from ..can.recording import JsonlFrameRecorder
+from ..capture.worker import CaptureWorker
 from ..domain.enums import DIRECTION_LABELS, NODE_LABELS
 from ..domain.schema import PROJECT_SCHEMA_VERSION
 from ..mock.generator import main as generate_mock_main
@@ -54,6 +57,11 @@ def build_parser() -> argparse.ArgumentParser:
         add_help=False,
         help="生成确定性的八方向 Mock CAN 数据",
     )
+    subparsers.add_parser(
+        "capture-mock",
+        add_help=False,
+        help="按指定速度回放并采集 Mock CAN JSONL",
+    )
     return parser
 
 
@@ -68,10 +76,46 @@ def _print_info(as_json: bool) -> None:
     print(f"Nodes: {', '.join(info['nodes'])}")
 
 
+def _capture_mock_main(argv: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="ble-calibration capture-mock",
+        description="无界面回放和采集 Mock CAN 数据",
+    )
+    parser.add_argument("--input", type=Path, required=True, help="输入 CAN JSONL")
+    parser.add_argument(
+        "--speed",
+        type=float,
+        default=0.0,
+        help="回放倍速；1 为原速，10 为十倍速，0 为最快",
+    )
+    parser.add_argument("--loop", action="store_true", help="循环回放")
+    parser.add_argument("--max-frames", type=int, default=None, help="达到帧数后停止")
+    parser.add_argument("--output", type=Path, default=None, help="可选采集输出 JSONL")
+    args = parser.parse_args(argv)
+
+    if args.loop and args.max_frames is None:
+        parser.error("--loop requires --max-frames")
+    if args.output is not None and args.output.resolve() == args.input.resolve():
+        parser.error("--output must differ from --input")
+
+    source = MockCanSource(args.input, speed=args.speed, loop=args.loop)
+    recorder = None if args.output is None else JsonlFrameRecorder(args.output)
+    worker = CaptureWorker(source, recorder=recorder, max_frames=args.max_frames)
+    worker.start()
+    worker.join()
+    if worker.last_error is not None:
+        print(f"采集失败: {worker.last_error}", file=sys.stderr)
+        return 1
+    print(f"采集完成: 帧数={worker.frame_count}")
+    return 0
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments and arguments[0] == "generate-mock":
         return generate_mock_main(arguments[1:])
+    if arguments and arguments[0] == "capture-mock":
+        return _capture_mock_main(arguments[1:])
 
     parser = build_parser()
     args = parser.parse_args(arguments or ["info"])

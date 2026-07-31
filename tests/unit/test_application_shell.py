@@ -45,6 +45,31 @@ class ApplicationShellTests(unittest.TestCase):
         self.assertIsInstance(frames[0], CanFrame)
         self.assertIs(compatibility_decode_frame, canonical_decode_frame)
 
+    def test_capture_mock_command_uses_worker_and_writes_limit(self) -> None:
+        frames, _ = generate_mock_session(MockConfig(seed=17))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = Path(temp_dir) / "input.jsonl"
+            output_path = Path(temp_dir) / "captured.jsonl"
+            input_path.write_text(
+                "".join(json.dumps(frame.to_json_record()) + "\n" for frame in frames[:20]),
+                encoding="utf-8",
+            )
+            with contextlib.redirect_stdout(io.StringIO()):
+                result = main([
+                    "capture-mock",
+                    "--input",
+                    str(input_path),
+                    "--speed",
+                    "0",
+                    "--max-frames",
+                    "12",
+                    "--output",
+                    str(output_path),
+                ])
+            saved_count = len(output_path.read_text(encoding="utf-8").splitlines())
+        self.assertEqual(result, 0)
+        self.assertEqual(saved_count, 12)
+
 
 if __name__ == "__main__":
     unittest.main()
