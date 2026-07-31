@@ -76,7 +76,9 @@ packaging\windows\build.ps1
 ZLG 原生驱动、可连接实车的候选包：
 
 ```powershell
-packaging\windows\build.ps1 -IncludeZlgcan
+packaging\windows\build.ps1 `
+  -PythonExecutable "$env:CONDA_PREFIX\python.exe" `
+  -IncludeZlgcan
 ```
 
 完整依赖、产物和两小时 Mock 长稳命令见

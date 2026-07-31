@@ -41,7 +41,7 @@ PyInstaller spec 生成本机 onedir，并启动冻结后的可执行文件验�
 冻结应用 onedir：约 116 MB
 ```
 
-当前完整自动化回归为 86 个测试。冻结应用验收额外生成 `analysis.png`、`manual.png`
+当前完整自动化回归由构建脚本全部执行。冻结应用验收额外生成 `analysis.png`、`manual.png`
 和 `live-zlg.png` 三类界面证据。
 
 3 秒快速长稳预检处理 10,720 帧、完成 30 次八方向重算，最大核心重算 82.270 ms，

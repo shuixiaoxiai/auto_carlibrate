@@ -3,7 +3,7 @@
 ## 构建环境
 
 - Windows 10/11 64 位。
-- 64 位 CPython 3.9+；无硬件 CI 固定使用 3.9。
+- 64 位 CPython 3.9-3.13；无硬件 CI 固定使用 3.9。
 - `python-can==4.6.1`。
 - PyInstaller 和 Pillow 版本见 `build-requirements.txt`。
 - 需要安装 Inno Setup 6；只生成 onedir 和 ZIP 时可使用 `-SkipInstaller`。
@@ -12,6 +12,19 @@ ZLG 实车候选包还要求当前 Python 环境已经安装 `zlgcan==0.3.0`，�
 当前 64 位 Python 匹配的 `clgcan_driver.pyd`。构建脚本不会替换这套已经过实车脚本
 验证的依赖；请直接在能运行 `tools/can_read_save.py` 的同一个 Python 环境中使用
 `-IncludeZlgcan`。
+
+脚本按 `-PythonExecutable`、`VIRTUAL_ENV`、`CONDA_PREFIX`、当前 `pip.exe`、PATH 中
+`python.exe` 的顺序选择解释器，并在开头打印绝对路径。这样即使从已激活 Conda 环境
+再启动一个 Windows PowerShell，也不会误用 base 环境。需要完全显式指定时可执行：
+
+```powershell
+packaging\windows\build.ps1 `
+  -PythonExecutable "$env:CONDA_PREFIX\python.exe" `
+  -IncludeZlgcan
+```
+
+Python 3.9-3.12 使用 PySide6 6.7.3；Python 3.13 使用兼容的 PySide6 6.8.3。
+所有 Python 子命令都会检查退出码，依赖安装或测试一旦失败便立即停止构建。
 
 `python-can` 会在两种模式下都明确收集，以支持 BLF 保存和回放；`zlgcan` 只在传入
 `-IncludeZlgcan` 时收集，避免“机器上碰巧安装了包”导致无硬件构建结果不确定。
@@ -29,7 +42,7 @@ packaging\windows\build.ps1
 1. 校验 PowerShell 和 Python 都是 64 位。
 2. 记录当前 Python 版本；实车模式以能运行参考脚本的解释器为准。
 3. 安装应用、固定构建依赖和 `python-can==4.6.1`。
-4. 运行 86 个单元测试、Qt What-if、Mock 手动采集和模拟 ZLG 持久连接工作流测试。
+4. 运行完整单元测试、Qt What-if、Mock 手动采集和模拟 ZLG 持久连接工作流测试。
 5. 生成 ICO 和 Windows 版本资源。
 6. 生成 PyInstaller onedir 应用。
 7. 启动冻结后的 EXE，先生成 BLF 验证 `python-can` 已正确收集，再验证 8 个方向和
@@ -68,7 +81,9 @@ dist\acceptance\release-audit.json
 先在能够运行参考脚本的同一个 64 位 Python 环境中执行：
 
 ```powershell
-packaging\windows\build.ps1 -IncludeZlgcan
+packaging\windows\build.ps1 `
+  -PythonExecutable "$env:CONDA_PREFIX\python.exe" `
+  -IncludeZlgcan
 ```
 
 脚本会在打包前校验 `zlgcan==0.3.0` 和 `clgcan_driver.pyd`，并在打包后再次检查
