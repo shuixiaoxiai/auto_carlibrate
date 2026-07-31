@@ -1,0 +1,123 @@
+{
+  "schema": "digital-key-mock-can/v1",
+  "generator": "ble_calibration.mock.generator",
+  "config": {
+    "seed": 20260730,
+    "sample_rate_hz": 10.0,
+    "direction_duration_s": 24.0,
+    "direction_gap_s": 2.0,
+    "turn_time_s": 13.0,
+    "request_hold_s": 0.5,
+    "channel": 0,
+    "blf_start_epoch_s": 1700000000.0
+  },
+  "reference_thresholds": {
+    "lock": [
+      -78,
+      -77,
+      -79,
+      -78,
+      -78
+    ],
+    "unlock": [
+      -67,
+      -66,
+      -68,
+      -67,
+      -67
+    ],
+    "lock_stable_s": 2.0,
+    "unlock_stable_s": 0.5
+  },
+  "frame_count": 7712,
+  "directions": [
+    {
+      "index": 0,
+      "name": "正前",
+      "start_time": 0.0,
+      "end_time": 24.0,
+      "turn_time": 13.0,
+      "lock_event_time": 12.1,
+      "unlock_event_time": 16.5,
+      "lock_distance_m": 8.6,
+      "unlock_distance_m": 1.4
+    },
+    {
+      "index": 1,
+      "name": "右前",
+      "start_time": 26.0,
+      "end_time": 50.0,
+      "turn_time": 39.0,
+      "lock_event_time": 37.9,
+      "unlock_event_time": 43.1,
+      "lock_distance_m": 10.2,
+      "unlock_distance_m": 2.6
+    },
+    {
+      "index": 2,
+      "name": "正右",
+      "start_time": 52.0,
+      "end_time": 76.0,
+      "turn_time": 65.0,
+      "lock_event_time": 64.1,
+      "unlock_event_time": 69.4,
+      "lock_distance_m": 12.1,
+      "unlock_distance_m": 4.2
+    },
+    {
+      "index": 3,
+      "name": "右后",
+      "start_time": 78.0,
+      "end_time": 102.0,
+      "turn_time": 91.0,
+      "lock_event_time": 89.8,
+      "unlock_event_time": 95.4,
+      "lock_distance_m": 14.3,
+      "unlock_distance_m": 5.5
+    },
+    {
+      "index": 4,
+      "name": "正后",
+      "start_time": 104.0,
+      "end_time": 128.0,
+      "turn_time": 117.0,
+      "lock_event_time": 116.1,
+      "unlock_event_time": 121.2,
+      "lock_distance_m": 9.4,
+      "unlock_distance_m": 3.1
+    },
+    {
+      "index": 5,
+      "name": "左后",
+      "start_time": 130.0,
+      "end_time": 154.0,
+      "turn_time": 143.0,
+      "lock_event_time": 141.9,
+      "unlock_event_time": 147.5,
+      "lock_distance_m": 13.6,
+      "unlock_distance_m": 4.8
+    },
+    {
+      "index": 6,
+      "name": "正左",
+      "start_time": 156.0,
+      "end_time": 180.0,
+      "turn_time": 169.0,
+      "lock_event_time": 167.7,
+      "unlock_event_time": 173.0,
+      "lock_distance_m": 11.0,
+      "unlock_distance_m": 2.0
+    },
+    {
+      "index": 7,
+      "name": "左前",
+      "start_time": 182.0,
+      "end_time": 206.0,
+      "turn_time": 195.0,
+      "lock_event_time": 194.1,
+      "unlock_event_time": 199.3,
+      "lock_distance_m": 8.9,
+      "unlock_distance_m": 5.8
+    }
+  ]
+}

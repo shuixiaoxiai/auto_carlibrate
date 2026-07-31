@@ -1,0 +1,10 @@
+{
+  "ok": true,
+  "duration_seconds": 10.01,
+  "frame_count": 36904,
+  "decoded_frame_count": 36904,
+  "recompute_count": 50,
+  "max_recompute_ms": 50.78,
+  "current_memory_mb": 2.973,
+  "peak_memory_mb": 3.035
+}

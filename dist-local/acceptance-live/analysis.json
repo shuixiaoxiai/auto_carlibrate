@@ -1,0 +1,26 @@
+{
+  "direction_count": 8,
+  "refresh_ms": 39.87533399999954,
+  "lock_summary": {
+    "total": 8,
+    "excellent": 0,
+    "good": 0,
+    "poor": 8,
+    "untriggered": 8
+  },
+  "unlock_summary": {
+    "total": 8,
+    "excellent": 0,
+    "good": 0,
+    "poor": 8,
+    "untriggered": 8
+  },
+  "summary_widgets": {
+    "lock_excellent": "优 0",
+    "lock_good": "良 0",
+    "lock_poor": "差 8",
+    "unlock_excellent": "优 0",
+    "unlock_good": "良 0",
+    "unlock_poor": "差 8"
+  }
+}
