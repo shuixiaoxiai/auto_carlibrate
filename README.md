@@ -66,7 +66,7 @@ BLF，方向切换不会重复打开 CAN 设备。设备配置默认保存在用
 
 ## Windows 打包
 
-在 Windows 10/11 64 位、Python 3.9 64 位环境执行无硬件构建：
+在 Windows 10/11 64 位、Python 3.9 64 位环境执行可复现的无硬件构建：
 
 ```powershell
 packaging\windows\build.ps1
@@ -90,8 +90,9 @@ packaging\windows\build.ps1 -IncludeZlgcan
 - `zlgcan==0.3.0`
 - `zlgcan` 包自带的 `clgcan_driver.pyd`
 
-精确依赖记录在 `requirements/windows-can.txt`。Windows EXE 打包前需要在目标电脑
-记录 Python ABI，并验证它与原生 `.pyd` 一致。
+精确依赖记录在 `requirements/windows-can.txt`。实车 EXE 直接使用已经能够运行
+`tools/can_read_save.py` 的同一个 64 位 Python 环境构建；脚本会自动检查依赖和原生
+`.pyd`，不需要测试人员另行填写 ZLG 型号或驱动版本。
 
 ## 目录
 

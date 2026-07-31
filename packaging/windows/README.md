@@ -3,14 +3,14 @@
 ## 构建环境
 
 - Windows 10/11 64 位。
-- CPython 3.9 64 位。
+- 64 位 CPython 3.9+；无硬件 CI 固定使用 3.9。
 - `python-can==4.6.1`。
 - PyInstaller 和 Pillow 版本见 `build-requirements.txt`。
 - 需要安装 Inno Setup 6；只生成 onedir 和 ZIP 时可使用 `-SkipInstaller`。
 
 ZLG 实车候选包还要求当前 Python 环境已经安装 `zlgcan==0.3.0`，并且包内存在与
-CPython 3.9 64 位匹配的 `clgcan_driver.pyd`。构建脚本不会替换这套已经过实车脚本验证
-的依赖；请在能运行 `tools/can_read_save.py` 的 Windows 环境中使用
+当前 64 位 Python 匹配的 `clgcan_driver.pyd`。构建脚本不会替换这套已经过实车脚本
+验证的依赖；请直接在能运行 `tools/can_read_save.py` 的同一个 Python 环境中使用
 `-IncludeZlgcan`。
 
 `python-can` 会在两种模式下都明确收集，以支持 BLF 保存和回放；`zlgcan` 只在传入
@@ -27,7 +27,7 @@ packaging\windows\build.ps1
 脚本依次完成：
 
 1. 校验 PowerShell 和 Python 都是 64 位。
-2. 校验当前解释器为与已验证原生扩展匹配的 CPython 3.9。
+2. 记录当前 Python 版本；实车模式以能运行参考脚本的解释器为准。
 3. 安装应用、固定构建依赖和 `python-can==4.6.1`。
 4. 运行 83 个单元测试、Qt What-if、Mock 手动采集和模拟 ZLG 持久连接工作流测试。
 5. 生成 ICO 和 Windows 版本资源。

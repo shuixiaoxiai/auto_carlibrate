@@ -16,9 +16,7 @@ if ($PythonBits -ne "64") {
     throw "The build must use 64-bit Python; current interpreter is $PythonBits-bit."
 }
 $PythonVersion = (python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')").Trim()
-if ($PythonVersion -ne "3.9") {
-    throw "The build must use CPython 3.9 for the verified clgcan_driver.pyd ABI; current interpreter is $PythonVersion."
-}
+Write-Host "Build interpreter: CPython $PythonVersion x64"
 
 python -m pip install --upgrade pip
 python -m pip install -e .
