@@ -27,13 +27,11 @@ class DirectionSessionControllerTests(unittest.TestCase):
         item = self.manifest["directions"][0]
         controller.select_direction(Direction.from_label(item["name"]))
         controller.start(walking_speed_mps=1.1, raw_data_file="front.jsonl")
+        controller.set_distances(item["lock_distance_m"], item["unlock_distance_m"])
         for frame in self.frames_for_manifest_direction(item):
             controller.process_frame(frame)
-            if controller.phase is SessionPhase.AWAITING_DISTANCES:
-                break
-        controller.set_distances(item["lock_distance_m"], item["unlock_distance_m"])
+        record = controller.manual_stop(item["end_time"])
 
-        record = controller.record_for(Direction.FRONT)
         self.assertEqual(controller.phase, SessionPhase.COMPLETE)
         self.assertEqual(record.status, DirectionStatus.COMPLETE)
         self.assertEqual(
@@ -42,6 +40,7 @@ class DirectionSessionControllerTests(unittest.TestCase):
         )
         self.assertGreater(record.sample_count, 0)
         self.assertEqual(record.actual_lock_distance_m, item["lock_distance_m"])
+        self.assertGreater(record.end_timestamp, record.event(EventType.UNLOCK).timestamp)
 
     def test_all_eight_mock_directions_complete(self) -> None:
         controller = DirectionSessionController()
@@ -55,8 +54,7 @@ class DirectionSessionControllerTests(unittest.TestCase):
             )
             for frame in self.frames_for_manifest_direction(item):
                 controller.process_frame(frame)
-                if controller.phase is SessionPhase.COMPLETE:
-                    break
+            controller.manual_stop(item["end_time"])
             self.assertEqual(controller.phase, SessionPhase.COMPLETE)
 
         self.assertEqual(len(controller.records), 8)

@@ -11,11 +11,11 @@
 - [x] CAN 协议基线中的事件语义和节点过期规则已确认。
 - [x] 验收用例中的阻塞项已消除。
 - [x] Mock 场景已覆盖首版开发所需的正常和异常路径。
-- [x] 需求基线版本更新为 `1.1`，状态为 `Frozen`。
+- [x] 需求基线版本更新为 `1.2`，状态为 `Frozen`。
 
 本目录交付物：
 
-- [需求基线 v1.1](../../docs/prds/ble-calibration-windows-app-v1.1-prd.md)
+- [需求基线 v1.2](../../docs/prds/ble-calibration-windows-app-v1.2-prd.md)
 - [CAN 协议基线](can-protocol-baseline.md)
 - [验收用例](acceptance-cases.md)
 - [Mock 场景矩阵](mock-scenarios.md)
@@ -32,5 +32,5 @@
 1. `0x55A` 的 `lock_req=1/2` 代表实际解锁/闭锁动作时刻。
 2. 支持 Windows 10/11 64 位；CAN 依赖固定为 `python-can==4.6.1`、`zlgcan==0.3.0`。
 3. 虚线表示动作时刻，两个实际距离分别绑定实测虚线；实线表示条件开始满足时刻。
-4. 两个事件齐全时方向自动完成；缺少任一事件时允许手动结束并保存为不完整方向。
+4. 方向由测试人员手动开始和结束；事件或距离不全时保存为不完整方向。
 5. What-if 虚线移动后按步速计算当前动作距离，优良差评级和汇总同步重算。

@@ -68,6 +68,7 @@ class DirectionSessionController:
             SessionPhase.WAITING_LOCK,
             SessionPhase.WAITING_UNLOCK,
             SessionPhase.AWAITING_DISTANCES,
+            SessionPhase.READY_TO_FINISH,
         ):
             raise SessionStateError("finish or stop the current direction first")
         self.selected_direction = direction
@@ -101,7 +102,12 @@ class DirectionSessionController:
         self.phase = SessionPhase.WAITING_LOCK
 
     def process_frame(self, frame: CanFrame) -> FrameProcessingResult:
-        if self.phase not in (SessionPhase.WAITING_LOCK, SessionPhase.WAITING_UNLOCK):
+        if self.phase not in (
+            SessionPhase.WAITING_LOCK,
+            SessionPhase.WAITING_UNLOCK,
+            SessionPhase.AWAITING_DISTANCES,
+            SessionPhase.READY_TO_FINISH,
+        ):
             return FrameProcessingResult({})
         assert self.selected_direction is not None
         if self._start_timestamp is None:
@@ -121,8 +127,12 @@ class DirectionSessionController:
         if event.event_type is EventType.UNLOCK and self.phase is SessionPhase.WAITING_UNLOCK:
             self._active_events.append(event)
             self._end_timestamp = event.timestamp
-            self.phase = SessionPhase.AWAITING_DISTANCES
-            self._try_complete()
+            self.phase = (
+                SessionPhase.READY_TO_FINISH
+                if self._lock_distance_m is not None
+                and self._unlock_distance_m is not None
+                else SessionPhase.AWAITING_DISTANCES
+            )
             return
         self.unexpected_event_count += 1
 
@@ -137,29 +147,34 @@ class DirectionSessionController:
             SessionPhase.WAITING_LOCK,
             SessionPhase.WAITING_UNLOCK,
             SessionPhase.AWAITING_DISTANCES,
+            SessionPhase.READY_TO_FINISH,
         ):
             raise SessionStateError("no active direction accepts distance input")
         self._lock_distance_m = lock_distance_m
         self._unlock_distance_m = unlock_distance_m
-        self._try_complete()
-
-    def _try_complete(self) -> None:
-        if (
-            self.phase is SessionPhase.AWAITING_DISTANCES
-            and self._lock_distance_m is not None
-            and self._unlock_distance_m is not None
-        ):
-            self._finalize(DirectionStatus.COMPLETE, SessionPhase.COMPLETE)
+        if self.phase is SessionPhase.AWAITING_DISTANCES:
+            self.phase = SessionPhase.READY_TO_FINISH
 
     def manual_stop(self, timestamp: Optional[float] = None) -> DirectionRecord:
         if self.phase not in (
             SessionPhase.WAITING_LOCK,
             SessionPhase.WAITING_UNLOCK,
             SessionPhase.AWAITING_DISTANCES,
+            SessionPhase.READY_TO_FINISH,
         ):
             raise SessionStateError("there is no active direction to stop")
         self._end_timestamp = timestamp if timestamp is not None else self._last_timestamp
-        return self._finalize(DirectionStatus.INCOMPLETE, SessionPhase.INCOMPLETE)
+        event_types = {event.event_type for event in self._active_events}
+        is_complete = (
+            EventType.LOCK in event_types
+            and EventType.UNLOCK in event_types
+            and self._lock_distance_m is not None
+            and self._unlock_distance_m is not None
+        )
+        return self._finalize(
+            DirectionStatus.COMPLETE if is_complete else DirectionStatus.INCOMPLETE,
+            SessionPhase.COMPLETE if is_complete else SessionPhase.INCOMPLETE,
+        )
 
     def _finalize(
         self,
@@ -189,6 +204,7 @@ class DirectionSessionController:
             SessionPhase.WAITING_LOCK,
             SessionPhase.WAITING_UNLOCK,
             SessionPhase.AWAITING_DISTANCES,
+            SessionPhase.READY_TO_FINISH,
         ):
             raise SessionStateError("stop the active direction before re-recording")
         self._records.pop(direction, None)

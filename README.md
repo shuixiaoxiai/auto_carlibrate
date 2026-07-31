@@ -54,6 +54,7 @@ python -m unittest discover -s tests -v
 
 ```text
 src/ble_calibration/
+  analysis/     距离、优良差及 8 方向 What-if 重算
   app/          应用入口和后续 UI 组合
   can/          共用 CAN 协议及后续数据源
   capture/      独立采集线程和生命周期

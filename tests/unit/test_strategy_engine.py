@@ -2,7 +2,7 @@ import unittest
 from dataclasses import replace
 
 from ble_calibration.cloud.models import CloudParameters
-from ble_calibration.domain import Direction, RssiSample, SessionPhase, StrategyKind
+from ble_calibration.domain import Direction, RssiSample, StrategyKind
 from ble_calibration.mock.generator import (
     REFERENCE_LOCK_THRESHOLDS,
     REFERENCE_UNLOCK_THRESHOLDS,
@@ -266,8 +266,7 @@ class StrategyEngineTests(unittest.TestCase):
             for frame in frames:
                 if item["start_time"] <= frame.timestamp <= item["end_time"]:
                     controller.process_frame(frame)
-                    if controller.phase is SessionPhase.COMPLETE:
-                        break
+            controller.manual_stop(item["end_time"])
             result = engine.analyze(direction, controller.samples_for(direction))
             self.assertIsNotNone(result.lock)
             self.assertIsNotNone(result.unlock)

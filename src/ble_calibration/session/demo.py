@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from ..domain.enums import Direction, DirectionStatus, EventType, SessionPhase
+from ..domain.enums import Direction, DirectionStatus, EventType
 from ..domain.models import CanFrame
 from .controller import DirectionSessionController
 
@@ -53,10 +53,7 @@ def replay_manifest_session(
             if frame.timestamp > end_time + 1e-9:
                 break
             controller.process_frame(frame)
-            if controller.phase is SessionPhase.COMPLETE:
-                break
-        if controller.phase is not SessionPhase.COMPLETE:
-            controller.manual_stop(end_time)
+        controller.manual_stop(end_time)
 
         record = controller.record_for(direction)
         assert record is not None

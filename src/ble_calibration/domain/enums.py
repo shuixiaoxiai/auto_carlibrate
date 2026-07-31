@@ -132,6 +132,7 @@ class SessionPhase(str, Enum):
     WAITING_LOCK = "waiting_lock"
     WAITING_UNLOCK = "waiting_unlock"
     AWAITING_DISTANCES = "awaiting_distances"
+    READY_TO_FINISH = "ready_to_finish"
     COMPLETE = "complete"
     INCOMPLETE = "incomplete"
 
