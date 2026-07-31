@@ -3,6 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from ble_calibration.can.memory_source import MemoryCanSource
 from ble_calibration.can.mock_source import MockCanSource
 from ble_calibration.can.source import CanSourceError, SourceState
 from ble_calibration.can.zlg_source import ZlgCanSource
@@ -40,6 +41,23 @@ class FakeBus:
 
 
 class CanSourceTests(unittest.TestCase):
+    def test_memory_source_replays_sorted_frames(self) -> None:
+        source = MemoryCanSource(
+            [
+                CanFrame(1.0, 0x101, b"\x02"),
+                CanFrame(0.5, 0x100, b"\x01"),
+            ],
+            speed=0,
+        )
+        source.connect()
+        received = [source.recv(), source.recv()]
+        self.assertIsNone(source.recv())
+        self.assertEqual(
+            [frame.timestamp for frame in received],
+            [0.5, 1.0],
+        )
+        self.assertEqual(source.state, SourceState.STOPPED)
+
     def test_mock_replay_emits_frames_and_lifecycle(self) -> None:
         frames = [
             CanFrame(0.0, 0x100, b"\x01"),

@@ -63,6 +63,31 @@ class DirectionSessionController:
     def record_for(self, direction: Direction) -> Optional[DirectionRecord]:
         return self._records.get(direction)
 
+    def active_record_snapshot(self) -> Optional[DirectionRecord]:
+        if (
+            self.selected_direction is None
+            or self.phase
+            not in (
+                SessionPhase.WAITING_LOCK,
+                SessionPhase.WAITING_UNLOCK,
+                SessionPhase.AWAITING_DISTANCES,
+                SessionPhase.READY_TO_FINISH,
+            )
+        ):
+            return None
+        return DirectionRecord(
+            direction=self.selected_direction,
+            status=DirectionStatus.RECORDING,
+            start_timestamp=self._start_timestamp,
+            end_timestamp=self._last_timestamp,
+            walking_speed_mps=self._walking_speed_mps,
+            actual_lock_distance_m=self._lock_distance_m,
+            actual_unlock_distance_m=self._unlock_distance_m,
+            vehicle_events=tuple(self._active_events),
+            sample_count=len(self._active_samples),
+            raw_data_file=self._raw_data_file,
+        )
+
     def select_direction(self, direction: Direction) -> None:
         if self.phase in (
             SessionPhase.WAITING_LOCK,
@@ -137,12 +162,13 @@ class DirectionSessionController:
         self.unexpected_event_count += 1
 
     def set_distances(self, lock_distance_m: float, unlock_distance_m: float) -> None:
-        for name, value in (
-            ("lock_distance_m", lock_distance_m),
-            ("unlock_distance_m", unlock_distance_m),
-        ):
-            if not math.isfinite(value) or value < 0:
-                raise ValueError(f"{name} must be a finite non-negative number")
+        self.set_distance(EventType.LOCK, lock_distance_m)
+        self.set_distance(EventType.UNLOCK, unlock_distance_m)
+
+    def set_distance(self, event_type: EventType, distance_m: float) -> None:
+        name = f"{event_type.value}_distance_m"
+        if not math.isfinite(distance_m) or distance_m < 0:
+            raise ValueError(f"{name} must be a finite non-negative number")
         if self.phase not in (
             SessionPhase.WAITING_LOCK,
             SessionPhase.WAITING_UNLOCK,
@@ -150,9 +176,15 @@ class DirectionSessionController:
             SessionPhase.READY_TO_FINISH,
         ):
             raise SessionStateError("no active direction accepts distance input")
-        self._lock_distance_m = lock_distance_m
-        self._unlock_distance_m = unlock_distance_m
-        if self.phase is SessionPhase.AWAITING_DISTANCES:
+        if event_type is EventType.LOCK:
+            self._lock_distance_m = distance_m
+        else:
+            self._unlock_distance_m = distance_m
+        if (
+            self.phase is SessionPhase.AWAITING_DISTANCES
+            and self._lock_distance_m is not None
+            and self._unlock_distance_m is not None
+        ):
             self.phase = SessionPhase.READY_TO_FINISH
 
     def manual_stop(self, timestamp: Optional[float] = None) -> DirectionRecord:

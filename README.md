@@ -27,6 +27,9 @@ python run_app.py project-demo \
   --manifest mock_data/eight_directions.manifest.json \
   --database data/projects.sqlite3
 python run_app.py gui
+python run_app.py gui \
+  --manual-mock \
+  --project-name "八方向手动标定"
 ```
 
 以标准包方式运行：
@@ -48,6 +51,7 @@ python -m unittest discover -s tests -v
 
 ```bash
 python tools/ui_smoke.py --max-refresh-ms 200
+python tools/manual_ui_smoke.py --width 1100 --height 720
 ```
 
 ## Windows CAN 依赖

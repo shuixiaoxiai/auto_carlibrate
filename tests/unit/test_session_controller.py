@@ -1,5 +1,7 @@
 import unittest
+import time
 
+from ble_calibration.can import MemoryCanSource
 from ble_calibration.domain import (
     Direction,
     DirectionStatus,
@@ -7,7 +9,11 @@ from ble_calibration.domain import (
     SessionPhase,
 )
 from ble_calibration.mock.generator import MockConfig, generate_mock_session
-from ble_calibration.session import DirectionSessionController, SessionStateError
+from ble_calibration.session import (
+    DirectionSessionController,
+    ManualCaptureCoordinator,
+    SessionStateError,
+)
 
 
 class DirectionSessionControllerTests(unittest.TestCase):
@@ -77,6 +83,52 @@ class DirectionSessionControllerTests(unittest.TestCase):
         self.assertEqual(record.status, DirectionStatus.INCOMPLETE)
         self.assertIsNotNone(record.event(EventType.LOCK))
         self.assertIsNone(record.event(EventType.UNLOCK))
+
+    def test_active_snapshot_and_partial_distance_survive_manual_stop(self) -> None:
+        controller = DirectionSessionController()
+        item = self.manifest["directions"][0]
+        controller.select_direction(Direction.FRONT)
+        controller.start()
+        for frame in self.frames_for_manifest_direction(item):
+            controller.process_frame(frame)
+            if controller.phase is SessionPhase.WAITING_UNLOCK:
+                break
+        controller.set_distance(EventType.LOCK, item["lock_distance_m"])
+        snapshot = controller.active_record_snapshot()
+        record = controller.manual_stop()
+
+        self.assertEqual(snapshot.status, DirectionStatus.RECORDING)
+        self.assertIsNotNone(snapshot.event(EventType.LOCK))
+        self.assertEqual(record.actual_lock_distance_m, item["lock_distance_m"])
+        self.assertIsNone(record.actual_unlock_distance_m)
+        self.assertEqual(record.status, DirectionStatus.INCOMPLETE)
+
+    def test_manual_capture_coordinator_is_thread_safe_and_keeps_post_unlock(self) -> None:
+        coordinator = ManualCaptureCoordinator()
+        item = self.manifest["directions"][0]
+        frames = self.frames_for_manifest_direction(item)
+        coordinator.begin(
+            Direction.FRONT,
+            MemoryCanSource(frames, speed=0),
+            walking_speed_mps=1.0,
+        )
+        deadline = time.monotonic() + 2.0
+        while not coordinator.snapshot().source_finished:
+            self.assertLess(time.monotonic(), deadline)
+        active = coordinator.snapshot()
+        dataset = coordinator.finish(
+            lock_distance_m=item["lock_distance_m"],
+            unlock_distance_m=item["unlock_distance_m"],
+        )
+
+        self.assertEqual(active.dataset.record.status, DirectionStatus.RECORDING)
+        self.assertIsNotNone(active.dataset.record.event(EventType.UNLOCK))
+        self.assertGreater(
+            active.dataset.record.end_timestamp,
+            active.dataset.record.event(EventType.UNLOCK).timestamp,
+        )
+        self.assertEqual(dataset.record.status, DirectionStatus.COMPLETE)
+        self.assertEqual(len(dataset.samples), dataset.record.sample_count)
 
     def test_redo_clears_previous_record(self) -> None:
         controller = DirectionSessionController()

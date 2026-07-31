@@ -244,17 +244,13 @@ class DirectionChartCard(QFrame):
     def set_dataset(self, dataset: Optional[DirectionDataset]) -> None:
         self.dataset = dataset
         self._clear_curves()
-        if dataset is None or not dataset.samples:
+        if dataset is None:
             self.status_label.setText("未记录")
             self.set_enabled_for_data(False)
             return
         self.set_enabled_for_data(True)
         record = dataset.record
-        self._origin = (
-            record.start_timestamp
-            if record.start_timestamp is not None
-            else dataset.samples[0].source_timestamp
-        )
+        self._origin = record.start_timestamp or 0.0
         self._loading_measurements = True
         self.lock_distance.setValue(
             -1.0
@@ -275,6 +271,13 @@ class DirectionChartCard(QFrame):
             DirectionStatus.NOT_STARTED: "未开始",
         }[record.status]
         self.status_label.setText(f"{status} · {len(dataset.samples)} 点")
+        if not dataset.samples:
+            self.result_label.setText("")
+            self.lock_detail.clear()
+            self.unlock_detail.clear()
+            return
+        if record.start_timestamp is None:
+            self._origin = dataset.samples[0].source_timestamp
 
         x_values = [
             sample.source_timestamp - self._origin for sample in dataset.samples

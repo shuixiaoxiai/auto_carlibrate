@@ -97,6 +97,8 @@ class ReplayService:
         frames: Sequence[CanFrame],
     ) -> DirectionDataset:
         if record.start_timestamp is None or record.end_timestamp is None:
+            if record.sample_count == 0:
+                return DirectionDataset(record=record, samples=())
             raise ReplayError(
                 f"direction {record.direction.label} has no complete time range"
             )

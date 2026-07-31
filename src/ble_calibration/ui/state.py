@@ -111,6 +111,30 @@ class CalibrationUiState:
         self.result = self._recompute()
         return self.result
 
+    def upsert_dataset(self, dataset: DirectionDataset) -> RecomputeResult:
+        retained = tuple(
+            item
+            for item in self.datasets
+            if item.record.direction is not dataset.record.direction
+        )
+        self.datasets = tuple(
+            sorted(
+                retained + (dataset,),
+                key=lambda item: item.record.direction.index,
+            )
+        )
+        self.result = self._recompute()
+        return self.result
+
+    def remove_direction(self, direction: Direction) -> RecomputeResult:
+        self.datasets = tuple(
+            dataset
+            for dataset in self.datasets
+            if dataset.record.direction is not direction
+        )
+        self.result = self._recompute()
+        return self.result
+
     def encoded_hex(self) -> str:
         return self.current_document.encode_hex()
 

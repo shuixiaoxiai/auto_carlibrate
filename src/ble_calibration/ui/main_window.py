@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import time
-from typing import Dict, Optional, Tuple
+from typing import Callable, Dict, Optional, Tuple
 
 from PySide6.QtCore import QTimer
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMessageBox,
+    QInputDialog,
     QPushButton,
     QScrollArea,
     QStatusBar,
@@ -22,9 +24,14 @@ from PySide6.QtWidgets import (
 )
 
 from ..cloud import CloudCodecError
-from ..domain import Direction
+from ..can.source import CanSource
+from ..domain import Direction, DirectionStatus
+from ..session import ManualCaptureCoordinator, SessionStateError
 from .direction_chart import DirectionChartCard
 from .parameter_panel import ParameterPanel
+from .project_dialog import ProjectPickerDialog
+from .project_workspace import ProjectWorkspace
+from .recording_bar import RecordingBar
 from .state import CalibrationUiState
 from .theme import APP_STYLESHEET
 
@@ -34,11 +41,23 @@ class CalibrationMainWindow(QMainWindow):
         self,
         state: CalibrationUiState,
         project_name: str = "未命名项目",
+        manual_capture: Optional[ManualCaptureCoordinator] = None,
+        source_factory: Optional[Callable[[Direction], CanSource]] = None,
+        workspace: Optional[ProjectWorkspace] = None,
         parent: Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self.state = state
         self.project_name = project_name
+        self.manual_capture = manual_capture
+        self.source_factory = source_factory
+        self.workspace = workspace
+        self._dirty = workspace is not None and not workspace.persisted
+        self._automated_exit = False
+        if (manual_capture is None) != (source_factory is None):
+            raise ValueError(
+                "manual_capture and source_factory must be provided together"
+            )
         self.cards: Dict[Direction, DirectionChartCard] = {}
         self.last_what_if_refresh_ms: Optional[float] = None
         self._pending_measurement: Optional[
@@ -61,6 +80,18 @@ class CalibrationMainWindow(QMainWindow):
         self.measurement_timer.setSingleShot(True)
         self.measurement_timer.setInterval(80)
         self.measurement_timer.timeout.connect(self._apply_measurement_edit)
+        self.capture_timer = QTimer(self)
+        self.capture_timer.setInterval(100)
+        self.capture_timer.timeout.connect(self._poll_manual_capture)
+        self.autosave_timer = QTimer(self)
+        self.autosave_timer.setInterval(30_000)
+        self.autosave_timer.timeout.connect(self._save_recovery_snapshot)
+        if self.workspace is not None:
+            self.autosave_timer.start()
+        self._last_preview_sample_count = -1
+        if self.manual_capture is not None:
+            self.capture_timer.start()
+            self.data_status.setText("● Mock 手动采集待机")
 
         self.parameter_panel.set_document(self.state.current_document)
         for direction, card in self.cards.items():
@@ -77,9 +108,26 @@ class CalibrationMainWindow(QMainWindow):
         )
         toolbar.addWidget(brand)
         toolbar.addSeparator()
-        project = QLabel(self.project_name)
-        project.setStyleSheet("font-size:14px; font-weight:600; padding:0 8px;")
-        toolbar.addWidget(project)
+        self.project_label = QLabel(self.project_name)
+        self.project_label.setStyleSheet(
+            "font-size:14px; font-weight:600; padding:0 8px;"
+        )
+        toolbar.addWidget(self.project_label)
+        self.new_project_action = QAction("新建", self)
+        self.new_project_action.triggered.connect(self._new_project)
+        toolbar.addAction(self.new_project_action)
+        self.open_project_action = QAction("打开", self)
+        self.open_project_action.triggered.connect(self._open_project)
+        toolbar.addAction(self.open_project_action)
+        self.save_project_action = QAction("保存", self)
+        self.save_project_action.triggered.connect(self._save_project)
+        toolbar.addAction(self.save_project_action)
+        for action in (
+            self.new_project_action,
+            self.open_project_action,
+            self.save_project_action,
+        ):
+            action.setEnabled(self.workspace is not None)
         spacer = QWidget()
         spacer.setSizePolicy(
             spacer.sizePolicy().Policy.Expanding,
@@ -123,6 +171,14 @@ class CalibrationMainWindow(QMainWindow):
         )
         self.show_parameters_top.hide()
         layout.addWidget(self.show_parameters_top)
+
+        self.recording_bar = RecordingBar()
+        self.recording_bar.setVisible(self.manual_capture is not None)
+        self.recording_bar.start_requested.connect(self._start_manual_recording)
+        self.recording_bar.finish_requested.connect(self._finish_manual_recording)
+        self.recording_bar.redo_requested.connect(self._redo_direction)
+        self.recording_bar.complete_test_requested.connect(self._complete_test)
+        layout.addWidget(self.recording_bar)
 
         guide = QFrame()
         guide_layout = QHBoxLayout(guide)
@@ -176,6 +232,7 @@ class CalibrationMainWindow(QMainWindow):
         self.parameter_panel.set_document(self.state.current_document)
         self.parameter_panel.show_codec_status("解码成功，已建立还原点")
         self._refresh_result("云推参数已解码并重算")
+        self._mark_dirty()
 
     def _encode_cloud(self) -> None:
         encoded = self.state.encoded_hex()
@@ -190,6 +247,7 @@ class CalibrationMainWindow(QMainWindow):
         self.parameter_panel.set_document(self.state.current_document)
         self.parameter_panel.show_codec_status("已还原到本次解码参数")
         self._refresh_result("参数、8 方向图和统计已还原")
+        self._mark_dirty()
 
     def _apply_parameter_edits(self) -> None:
         started = time.perf_counter()
@@ -214,6 +272,7 @@ class CalibrationMainWindow(QMainWindow):
             f"全界面 {self.last_what_if_refresh_ms:.1f} ms",
             5000,
         )
+        self._mark_dirty()
 
     def _queue_measurement_edit(
         self,
@@ -246,6 +305,277 @@ class CalibrationMainWindow(QMainWindow):
         card = self.cards[direction]
         card.set_dataset(self.state.dataset_for(direction))
         self._refresh_result(f"{direction.label}距离/步速已更新")
+        self._mark_dirty()
+
+    def _start_manual_recording(
+        self,
+        direction: Direction,
+        walking_speed: float,
+    ) -> None:
+        if self.manual_capture is None or self.source_factory is None:
+            return
+        existing = self.state.dataset_for(direction)
+        if existing is not None:
+            choice = QMessageBox.question(
+                self,
+                "重录方向",
+                f"{direction.label}已有记录，开始后将以新记录替换。是否继续？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if choice != QMessageBox.StandardButton.Yes:
+                return
+            self.state.remove_direction(direction)
+            self.cards[direction].set_dataset(None)
+            self._refresh_result(f"{direction.label}旧记录已移除，等待重录")
+            self._mark_dirty()
+        try:
+            source = self.source_factory(direction)
+            recorder = None
+            raw_data_file = None
+            if self.workspace is not None:
+                recorder, raw_data_file = self.workspace.capture_target(direction)
+            self.manual_capture.begin(
+                direction,
+                source,
+                walking_speed_mps=walking_speed,
+                raw_data_file=raw_data_file,
+                recorder=recorder,
+            )
+        except (OSError, ValueError, RuntimeError, SessionStateError) as error:
+            self.recording_bar.status_label.setText(f"无法开始：{error}")
+            self.recording_bar.status_label.setStyleSheet("color:#ff6b78;")
+            return
+        self._last_preview_sample_count = -1
+        self.recording_bar.reset_distances()
+        self.recording_bar.set_recording(True)
+        self.data_status.setText(f"● 正在记录 {direction.label}")
+        self.statusBar().showMessage(
+            f"{direction.label}开始记录：远离等待闭锁，随后靠近等待解锁",
+            5000,
+        )
+
+    def _redo_direction(self, direction: Direction) -> None:
+        if self.manual_capture is None or self.manual_capture.is_active:
+            return
+        if self.state.dataset_for(direction) is None:
+            self.recording_bar.status_label.setText(
+                f"{direction.label}尚无记录，可直接点击“开始记录”"
+            )
+            return
+        choice = QMessageBox.question(
+            self,
+            "重录方向",
+            f"确定删除{direction.label}当前记录并重新采集？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if choice != QMessageBox.StandardButton.Yes:
+            return
+        self.state.remove_direction(direction)
+        self.cards[direction].set_dataset(None)
+        self._refresh_result(f"{direction.label}已清除，等待重录")
+        self.recording_bar.reset_distances()
+        self.recording_bar.status_label.setText(
+            f"{direction.label}旧记录已清除，请点击“开始记录”"
+        )
+        self._mark_dirty()
+        self._save_recovery_snapshot()
+
+    def _complete_test(self) -> None:
+        if self.manual_capture is not None and self.manual_capture.is_active:
+            QMessageBox.information(self, "正在记录", "请先手动结束当前方向。")
+            return
+        saved = self._save_project() if self.workspace is not None else True
+        if not saved:
+            return
+        complete = sum(
+            dataset.record.status is DirectionStatus.COMPLETE
+            for dataset in self.state.datasets
+        )
+        incomplete = len(self.state.datasets) - complete
+        self.recording_bar.status_label.setText(
+            f"本次测试已保存：完整 {complete}，不完整 {incomplete}"
+        )
+        self.recording_bar.status_label.setStyleSheet("color:#58d68d;")
+
+    def _poll_manual_capture(self) -> None:
+        if self.manual_capture is None:
+            return
+        snapshot = self.manual_capture.snapshot()
+        self.recording_bar.set_snapshot(snapshot)
+        preview = snapshot.dataset
+        if (
+            preview is None
+            or preview.record.sample_count == self._last_preview_sample_count
+        ):
+            return
+        self._last_preview_sample_count = preview.record.sample_count
+        card = self.cards[preview.record.direction]
+        card.set_dataset(preview)
+        card.set_enabled_for_data(False)
+        preview_result = self.state.service.recompute(
+            self.state.current_document.parameters,
+            (preview,),
+        )
+        card.set_analysis(
+            preview_result.directions.get(preview.record.direction),
+            self.state.current_document.parameters,
+        )
+
+    def _finish_manual_recording(
+        self,
+        lock_distance: Optional[float],
+        unlock_distance: Optional[float],
+    ) -> None:
+        if self.manual_capture is None:
+            return
+        try:
+            dataset = self.manual_capture.finish(
+                lock_distance_m=lock_distance,
+                unlock_distance_m=unlock_distance,
+            )
+        except (ValueError, RuntimeError, SessionStateError) as error:
+            self.recording_bar.status_label.setText(f"无法结束：{error}")
+            self.recording_bar.status_label.setStyleSheet("color:#ff6b78;")
+            return
+        self.state.upsert_dataset(dataset)
+        card = self.cards[dataset.record.direction]
+        card.set_dataset(dataset)
+        card.set_enabled_for_data(True)
+        self._refresh_result(f"{dataset.record.direction.label}已手动结束并保存")
+        complete = dataset.record.status is DirectionStatus.COMPLETE
+        self.recording_bar.set_finished(dataset.record.direction, complete)
+        recorded = tuple(item.record.direction for item in self.state.datasets)
+        self.recording_bar.select_next_unrecorded(recorded)
+        self.data_status.setText(
+            f"● 已记录 {len(recorded)}/8"
+        )
+        self._mark_dirty()
+        self._save_recovery_snapshot()
+
+    def _mark_dirty(self) -> None:
+        if self.workspace is None:
+            return
+        self._dirty = True
+        self.setWindowTitle(
+            f"BLE Calibration · {self.workspace.name} *"
+        )
+
+    def _save_project(self) -> bool:
+        if self.workspace is None:
+            return False
+        try:
+            self.workspace.save(self.state)
+        except (OSError, ValueError, RuntimeError) as error:
+            QMessageBox.critical(self, "保存失败", str(error))
+            return False
+        self._dirty = False
+        self.project_name = self.workspace.name
+        self.project_label.setText(self.workspace.name)
+        self.setWindowTitle(f"BLE Calibration · {self.workspace.name}")
+        self.statusBar().showMessage(
+            f"项目已保存：{self.workspace.database_path}",
+            5000,
+        )
+        return True
+
+    def _save_recovery_snapshot(self) -> None:
+        if self.workspace is None or not self._dirty:
+            return
+        try:
+            self.workspace.save_recovery(self.state)
+        except (OSError, ValueError, RuntimeError) as error:
+            self.statusBar().showMessage(f"自动恢复快照失败：{error}", 5000)
+
+    def _confirm_pending_changes(self) -> bool:
+        if not self._dirty or self.workspace is None:
+            return True
+        choice = QMessageBox.warning(
+            self,
+            "项目尚未保存",
+            "当前项目有未保存更改。",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Save,
+        )
+        if choice == QMessageBox.StandardButton.Cancel:
+            return False
+        if choice == QMessageBox.StandardButton.Save:
+            return self._save_project()
+        return True
+
+    def _new_project(self) -> None:
+        if self.workspace is None:
+            return
+        if self.manual_capture is not None and self.manual_capture.is_active:
+            QMessageBox.information(self, "正在记录", "请先手动结束当前方向。")
+            return
+        if not self._confirm_pending_changes():
+            return
+        name, accepted = QInputDialog.getText(
+            self,
+            "新建项目",
+            "项目名称",
+            text="新建八方向标定",
+        )
+        if not accepted or not name.strip():
+            return
+        workspace = ProjectWorkspace.create(
+            self.workspace.database_path,
+            name.strip(),
+        )
+        state = CalibrationUiState(self.state.original_document, ())
+        self._replace_workspace(workspace, state)
+        self._mark_dirty()
+
+    def _open_project(self) -> None:
+        if self.workspace is None:
+            return
+        if self.manual_capture is not None and self.manual_capture.is_active:
+            QMessageBox.information(self, "正在记录", "请先手动结束当前方向。")
+            return
+        if not self._confirm_pending_changes():
+            return
+        project_id = ProjectPickerDialog.pick(
+            self.workspace.database_path,
+            self,
+        )
+        if project_id is None:
+            return
+        try:
+            workspace, state = ProjectWorkspace.load(
+                self.workspace.database_path,
+                project_id,
+            )
+        except (OSError, ValueError, KeyError, RuntimeError) as error:
+            QMessageBox.critical(self, "打开失败", str(error))
+            return
+        self._replace_workspace(workspace, state)
+        self.statusBar().showMessage(f"已打开项目：{workspace.name}", 5000)
+
+    def _replace_workspace(
+        self,
+        workspace: ProjectWorkspace,
+        state: CalibrationUiState,
+    ) -> None:
+        if self.manual_capture is not None:
+            self.manual_capture.close()
+            self.manual_capture = ManualCaptureCoordinator()
+        self.workspace = workspace
+        self.state = state
+        self.project_name = workspace.name
+        self.project_label.setText(workspace.name)
+        self.parameter_panel.set_document(state.current_document)
+        for direction, card in self.cards.items():
+            card.set_dataset(state.dataset_for(direction))
+        self._dirty = not workspace.persisted
+        self.setWindowTitle(f"BLE Calibration · {workspace.name}")
+        self._refresh_result("项目工作区已切换")
+        recorded = tuple(item.record.direction for item in state.datasets)
+        self.recording_bar.select_next_unrecorded(recorded)
+        self.data_status.setText(f"● 已记录 {len(recorded)}/8")
 
     def _refresh_result(self, message: str) -> None:
         result = self.state.result
@@ -261,3 +591,34 @@ class CalibrationMainWindow(QMainWindow):
             f"{message} · 核心重算 {result.elapsed_ms:.2f} ms",
             5000,
         )
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self._automated_exit:
+            if self.manual_capture is not None:
+                self.manual_capture.close()
+            super().closeEvent(event)
+            return
+        if self.manual_capture is not None and self.manual_capture.is_active:
+            choice = QMessageBox.warning(
+                self,
+                "当前方向仍在记录",
+                "关闭前将手动结束并保存当前已有数据，是否继续？",
+                QMessageBox.StandardButton.Yes
+                | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if choice != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+            lock_distance, unlock_distance = self.recording_bar.distances()
+            self._finish_manual_recording(lock_distance, unlock_distance)
+        if not self._confirm_pending_changes():
+            event.ignore()
+            return
+        if self.manual_capture is not None:
+            self.manual_capture.close()
+        super().closeEvent(event)
+
+    def close_for_automation(self) -> None:
+        self._automated_exit = True
+        self.close()

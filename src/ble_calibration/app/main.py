@@ -285,6 +285,28 @@ def _gui_main(argv: Sequence[str]) -> int:
     parser.add_argument("--input", type=Path, help="可选 Mock CAN JSONL")
     parser.add_argument("--manifest", type=Path, help="与 JSONL 对应的 manifest")
     parser.add_argument("--seed", type=int, default=20260730, help="内置 Mock 随机种子")
+    parser.add_argument(
+        "--manual-mock",
+        action="store_true",
+        help="启动空项目，按测试人员操作手动记录各方向",
+    )
+    parser.add_argument(
+        "--replay-speed",
+        type=float,
+        default=10.0,
+        help="手动 Mock 模式的数据播放倍速",
+    )
+    parser.add_argument(
+        "--database",
+        type=Path,
+        help="项目 SQLite；默认使用用户数据目录",
+    )
+    parser.add_argument("--project-id", help="直接打开指定项目 ID")
+    parser.add_argument(
+        "--project-name",
+        default="新建八方向标定",
+        help="手动 Mock 新项目名称",
+    )
     parser.add_argument("--screenshot", type=Path, help="保存启动界面截图后退出")
     parser.add_argument(
         "--parameters-hidden",
@@ -300,6 +322,12 @@ def _gui_main(argv: Sequence[str]) -> int:
     args = parser.parse_args(argv)
     if (args.input is None) != (args.manifest is None):
         parser.error("--input and --manifest must be provided together")
+    if args.manual_mock and args.input is not None:
+        parser.error("--manual-mock cannot be combined with --input")
+    if args.project_id and args.input is not None:
+        parser.error("--project-id cannot be combined with --input")
+    if args.replay_speed < 0:
+        parser.error("--replay-speed cannot be negative")
     try:
         from ..ui.application import run_ui
 
@@ -310,6 +338,11 @@ def _gui_main(argv: Sequence[str]) -> int:
             screenshot_path=args.screenshot,
             quit_after_ms=args.quit_after_ms,
             parameters_hidden=args.parameters_hidden,
+            manual_mock=args.manual_mock,
+            replay_speed=args.replay_speed,
+            database_path=args.database,
+            project_id=args.project_id,
+            project_name=args.project_name,
         )
     except (ImportError, OSError, ValueError, KeyError) as error:
         print(f"界面启动失败: {error}", file=sys.stderr)

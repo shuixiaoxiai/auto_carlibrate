@@ -9,7 +9,12 @@ from ble_calibration.analysis import (
     EightDirectionRecomputeService,
 )
 from ble_calibration.cloud.models import CloudParameters
-from ble_calibration.domain import CalibrationProject, Direction
+from ble_calibration.domain import (
+    CalibrationProject,
+    Direction,
+    DirectionRecord,
+    DirectionStatus,
+)
 from ble_calibration.mock.generator import (
     REFERENCE_LOCK_THRESHOLDS,
     REFERENCE_UNLOCK_THRESHOLDS,
@@ -170,6 +175,17 @@ class StorageAndReplayTests(unittest.TestCase):
         self.assertEqual(len(frames), 1)
         self.assertEqual(frames[0].arbitration_id, 0x629)
         self.assertTrue(readers[0].stopped)
+
+    def test_zero_sample_incomplete_direction_replays_as_empty_dataset(self) -> None:
+        record = DirectionRecord(
+            direction=Direction.FRONT,
+            status=DirectionStatus.INCOMPLETE,
+            raw_data_file=str(self.root / "empty.jsonl"),
+        )
+        (self.root / "empty.jsonl").write_text("", encoding="utf-8")
+        dataset = ReplayService().rebuild_direction(record, ())
+        self.assertEqual(dataset.record, record)
+        self.assertEqual(dataset.samples, ())
 
     def test_autosave_worker_writes_recovery_snapshot(self) -> None:
         saved = threading.Event()

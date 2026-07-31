@@ -8,6 +8,7 @@ from .protocol import (
     decode_frame,
 )
 from .mock_source import MockCanSource
+from .memory_source import MemoryCanSource
 from .source import CanSource, CanSourceError, SourceState, SourceStatus
 from .zlg_source import ZlgCanSource
 
@@ -20,6 +21,7 @@ __all__ = [
     "CanSource",
     "CanSourceError",
     "MockCanSource",
+    "MemoryCanSource",
     "SourceState",
     "SourceStatus",
     "ZlgCanSource",
