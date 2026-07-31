@@ -14,6 +14,10 @@ python run_app.py capture-mock \
   --input mock_data/eight_directions.jsonl \
   --speed 10 \
   --output mock_data/captured.jsonl
+python run_app.py session-demo \
+  --input mock_data/eight_directions.jsonl \
+  --manifest mock_data/eight_directions.manifest.json \
+  --json
 ```
 
 以标准包方式运行：
@@ -53,6 +57,8 @@ src/ble_calibration/
   diagnostics/  日志和诊断
   domain/       时间、节点、方向、事件、项目等核心模型
   mock/         确定性八方向 Mock CAN
+  processing/   五节点时间对齐、stale 和请求边沿
+  session/      方向选择、记录、距离和完成状态机
 tools/          兼容工具入口和实车参考脚本
 tests/          自动化测试
 plans/          分步实施与验收文档

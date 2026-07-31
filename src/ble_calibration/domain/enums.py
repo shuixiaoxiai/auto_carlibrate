@@ -126,6 +126,16 @@ class DirectionStatus(str, Enum):
     INCOMPLETE = "incomplete"
 
 
+class SessionPhase(str, Enum):
+    IDLE = "idle"
+    READY = "ready"
+    WAITING_LOCK = "waiting_lock"
+    WAITING_UNLOCK = "waiting_unlock"
+    AWAITING_DISTANCES = "awaiting_distances"
+    COMPLETE = "complete"
+    INCOMPLETE = "incomplete"
+
+
 class StrategyKind(str, Enum):
     BASE = "base"
     MASTER_UNLOCK = "mstUnlock"

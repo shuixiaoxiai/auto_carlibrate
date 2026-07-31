@@ -16,6 +16,7 @@ from ..capture.worker import CaptureWorker
 from ..domain.enums import DIRECTION_LABELS, NODE_LABELS
 from ..domain.schema import PROJECT_SCHEMA_VERSION
 from ..mock.generator import main as generate_mock_main
+from ..session.demo import replay_manifest_session
 from ..version import __version__
 
 
@@ -61,6 +62,11 @@ def build_parser() -> argparse.ArgumentParser:
         "capture-mock",
         add_help=False,
         help="按指定速度回放并采集 Mock CAN JSONL",
+    )
+    subparsers.add_parser(
+        "session-demo",
+        add_help=False,
+        help="使用 manifest 无界面执行八方向记录会话",
     )
     return parser
 
@@ -110,12 +116,39 @@ def _capture_mock_main(argv: Sequence[str]) -> int:
     return 0
 
 
+def _session_demo_main(argv: Sequence[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="ble-calibration session-demo",
+        description="将 Mock CAN 与 manifest 跑过真实方向会话状态机",
+    )
+    parser.add_argument("--input", type=Path, required=True, help="输入 CAN JSONL")
+    parser.add_argument("--manifest", type=Path, required=True, help="方向 manifest")
+    parser.add_argument("--json", action="store_true", help="输出完整 JSON")
+    args = parser.parse_args(argv)
+    try:
+        _, summary = replay_manifest_session(args.input, args.manifest)
+    except (OSError, ValueError, KeyError) as error:
+        print(f"会话失败: {error}", file=sys.stderr)
+        return 1
+    if args.json:
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+    else:
+        print(
+            f"会话完成: 方向={summary['direction_count']} "
+            f"完整={summary['complete_count']} "
+            f"不完整={summary['incomplete_count']}"
+        )
+    return 0 if summary["incomplete_count"] == 0 else 2
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments and arguments[0] == "generate-mock":
         return generate_mock_main(arguments[1:])
     if arguments and arguments[0] == "capture-mock":
         return _capture_mock_main(arguments[1:])
+    if arguments and arguments[0] == "session-demo":
+        return _session_demo_main(arguments[1:])
 
     parser = build_parser()
     args = parser.parse_args(arguments or ["info"])

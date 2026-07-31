@@ -70,6 +70,34 @@ class ApplicationShellTests(unittest.TestCase):
         self.assertEqual(result, 0)
         self.assertEqual(saved_count, 12)
 
+    def test_session_demo_completes_all_directions(self) -> None:
+        frames, manifest = generate_mock_session(MockConfig(seed=20260730))
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = Path(temp_dir) / "input.jsonl"
+            manifest_path = Path(temp_dir) / "manifest.json"
+            input_path.write_text(
+                "".join(json.dumps(frame.to_json_record()) + "\n" for frame in frames),
+                encoding="utf-8",
+            )
+            manifest_path.write_text(
+                json.dumps(manifest, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                result = main([
+                    "session-demo",
+                    "--input",
+                    str(input_path),
+                    "--manifest",
+                    str(manifest_path),
+                    "--json",
+                ])
+            summary = json.loads(output.getvalue())
+        self.assertEqual(result, 0)
+        self.assertEqual(summary["complete_count"], 8)
+        self.assertEqual(summary["incomplete_count"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,6 +7,7 @@ from .enums import (
     DistanceGrade,
     EventType,
     Node,
+    SessionPhase,
     StrategyKind,
 )
 from .models import (
@@ -35,6 +36,7 @@ __all__ = [
     "EventType",
     "Node",
     "RssiSample",
+    "SessionPhase",
     "StrategyEventResult",
     "StrategyKind",
     "VehicleEvent",
