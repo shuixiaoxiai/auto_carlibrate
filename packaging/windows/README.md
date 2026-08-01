@@ -119,3 +119,15 @@ python tools\stability_smoke.py `
 
 GitHub Actions 的 `windows-build` 工作流也执行相同的两小时门禁。仓库尚未配置远程仓库
 或 Windows runner 时，可直接在目标 Windows 电脑运行上述 PowerShell 脚本。
+
+## 源码包与 GitHub 同步
+
+本地生成仅包含源码、并写入准确提交号的 Windows 交接包：
+
+```powershell
+python tools\create_source_archive.py
+```
+
+脚本固定排除 `dist-local`，避免把历史源码包和构建产物递归装入新 ZIP。`main` 分支每次
+推送后，`source-archive` GitHub Actions 工作流也会自动生成同一规则的源码包并上传为
+该提交的 Actions artifact。

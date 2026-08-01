@@ -1,0 +1,28 @@
+name: source-archive
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+
+      - name: Create revision-stamped source package
+        run: python tools/create_source_archive.py --output-dir packaged-source
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BLECalibration-windows-source-${{ github.sha }}
+          path: packaged-source/*.zip
+          if-no-files-found: error
