@@ -37,12 +37,14 @@ class RecordingBar(QFrame):
     finish_requested = Signal(object, object)
     redo_requested = Signal(object)
     complete_test_requested = Signal()
+    default_speed_edited = Signal(float)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.setObjectName("directionCard")
         self._source_ready = True
         self._recording = False
+        self._loading_default_speed = False
         root = QVBoxLayout(self)
         root.setContentsMargins(13, 10, 13, 10)
         root.setSpacing(6)
@@ -64,7 +66,18 @@ class RecordingBar(QFrame):
         controls.addWidget(QLabel("解锁距离"))
         self.unlock_distance = self._distance_spin()
         controls.addWidget(self.unlock_distance)
-        controls.addWidget(QLabel("步速"))
+        controls.addWidget(QLabel("默认步速"))
+        self.default_walking_speed = QDoubleSpinBox()
+        self.default_walking_speed.setRange(0.1, 5.0)
+        self.default_walking_speed.setDecimals(1)
+        self.default_walking_speed.setSingleStep(0.1)
+        self.default_walking_speed.setValue(1.0)
+        self.default_walking_speed.setSuffix(" m/s")
+        self.default_walking_speed.valueChanged.connect(
+            self._default_speed_changed
+        )
+        controls.addWidget(self.default_walking_speed)
+        controls.addWidget(QLabel("本次步速"))
         self.walking_speed = QDoubleSpinBox()
         self.walking_speed.setRange(0.1, 5.0)
         self.walking_speed.setDecimals(1)
@@ -94,6 +107,7 @@ class RecordingBar(QFrame):
             lambda: self.redo_requested.emit(self.selected_direction)
         )
         footer.addWidget(self.redo_button)
+        self.redo_button.hide()
         self.complete_test_button = QPushButton("完成本次测试并保存")
         self.complete_test_button.clicked.connect(
             self.complete_test_requested.emit
@@ -138,6 +152,7 @@ class RecordingBar(QFrame):
         self._recording = recording
         self.direction_combo.setEnabled(not recording)
         self.walking_speed.setEnabled(not recording)
+        self.default_walking_speed.setEnabled(not recording)
         self.start_button.setEnabled(not recording and self._source_ready)
         self.finish_button.setEnabled(recording)
         self.redo_button.setEnabled(not recording)
@@ -152,6 +167,24 @@ class RecordingBar(QFrame):
     def reset_distances(self) -> None:
         self.lock_distance.setValue(-1.0)
         self.unlock_distance.setValue(-1.0)
+
+    def set_default_walking_speed(self, value: float) -> None:
+        self._loading_default_speed = True
+        self.default_walking_speed.setValue(value)
+        if not self._recording:
+            self.walking_speed.setValue(value)
+        self._loading_default_speed = False
+
+    def reset_walking_speed(self) -> None:
+        if not self._recording:
+            self.walking_speed.setValue(self.default_walking_speed.value())
+
+    def _default_speed_changed(self, value: float) -> None:
+        if self._loading_default_speed:
+            return
+        if not self._recording:
+            self.walking_speed.setValue(value)
+        self.default_speed_edited.emit(value)
 
     def set_snapshot(self, snapshot: ManualCaptureSnapshot) -> None:
         text = PHASE_LABELS[snapshot.phase]
@@ -168,6 +201,7 @@ class RecordingBar(QFrame):
 
     def set_finished(self, direction: Direction, complete: bool) -> None:
         self.set_recording(False)
+        self.reset_walking_speed()
         self.status_label.setText(
             f"{direction.label}已保存为{'完整' if complete else '不完整'}方向"
         )

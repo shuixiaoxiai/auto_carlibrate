@@ -24,16 +24,23 @@ class CalibrationUiStateTests(unittest.TestCase):
                 capture_channel=2,
             )
             expected_path = (
-                workspace.capture_directory / "front_20260731.blf"
+                workspace.capture_directory
+                / "front"
+                / "group-2"
+                / "recording-2_20260731.blf"
             ).resolve()
             with patch(
                 "ble_calibration.ui.project_workspace.RotatingBlfRecorder"
             ) as recorder_type:
                 recorder_type.return_value.paths = [expected_path]
-                recorder, raw_path = workspace.capture_target(Direction.FRONT)
+                recorder, raw_path = workspace.capture_target(
+                    Direction.FRONT,
+                    2,
+                    "recording-2",
+                )
 
         recorder_type.assert_called_once_with(
-            workspace.capture_directory / "front",
+            workspace.capture_directory / "front" / "group-2" / "recording-2",
             channel=2,
         )
         self.assertIs(recorder, recorder_type.return_value)
@@ -122,6 +129,7 @@ class CalibrationUiStateTests(unittest.TestCase):
         self.assertEqual(reopened.result.directions, state.result.directions)
         self.assertEqual(reopened.result.lock_summary, state.result.lock_summary)
         self.assertEqual(reopened.result.unlock_summary, state.result.unlock_summary)
+        self.assertEqual(reopened.default_walking_speed_mps, 1.0)
 
 
 if __name__ == "__main__":

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
+from ..analysis import GroupedRecomputeResult
 from ..analysis.recompute import QualitySummary, RecomputeResult
 from ..domain.models import StrategyEventResult
 
@@ -47,7 +48,7 @@ def _summary_to_dict(summary: QualitySummary) -> Dict[str, Any]:
     }
 
 
-def recompute_result_to_dict(result: RecomputeResult) -> Dict[str, Any]:
+def _single_result_to_dict(result: RecomputeResult) -> Dict[str, Any]:
     return {
         "directions": {
             direction.value: {
@@ -56,6 +57,36 @@ def recompute_result_to_dict(result: RecomputeResult) -> Dict[str, Any]:
                 "unlock": _event_result_to_dict(analysis.unlock),
             }
             for direction, analysis in result.directions.items()
+        },
+        "lock_summary": _summary_to_dict(result.lock_summary),
+        "unlock_summary": _summary_to_dict(result.unlock_summary),
+        "elapsed_ms": result.elapsed_ms,
+    }
+
+
+def recompute_result_to_dict(
+    result: Union[RecomputeResult, GroupedRecomputeResult],
+) -> Dict[str, Any]:
+    if isinstance(result, RecomputeResult):
+        return _single_result_to_dict(result)
+    first_group = result.group_results.get(1)
+    return {
+        "directions": (
+            {} if first_group is None else _single_result_to_dict(first_group)["directions"]
+        ),
+        "groups": {
+            str(group_index): _single_result_to_dict(group_result)
+            for group_index, group_result in result.group_results.items()
+        },
+        "means": {
+            direction.value: {
+                "group_count": mean.group_count,
+                "lock_result_count": mean.lock_result_count,
+                "unlock_result_count": mean.unlock_result_count,
+                "lock": _event_result_to_dict(mean.analysis.lock),
+                "unlock": _event_result_to_dict(mean.analysis.unlock),
+            }
+            for direction, mean in result.mean_directions.items()
         },
         "lock_summary": _summary_to_dict(result.lock_summary),
         "unlock_summary": _summary_to_dict(result.unlock_summary),

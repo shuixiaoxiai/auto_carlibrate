@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Dict, Mapping, Optional, Sequence, Tuple
+from typing import Dict, Mapping, Optional, Sequence, Tuple, Union
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ..analysis import RecomputeResult
+from ..analysis import GroupedRecomputeResult, RecomputeResult
 from ..cloud import CloudDocument
 from ..domain.enums import NODE_ORDER
 from .summary_panel import SummaryPanel
@@ -236,7 +236,7 @@ class ParameterPanel(QFrame):
 
     def set_result(
         self,
-        result: RecomputeResult,
+        result: Union[RecomputeResult, GroupedRecomputeResult],
         *,
         using_original: bool,
         encoded_hex: str,
@@ -248,7 +248,7 @@ class ParameterPanel(QFrame):
                 if using_original
                 else "What-if 已修改 · 使用当前虚线投影距离"
             )
-            + f" · 8 方向重算 {result.elapsed_ms:.2f} ms"
+            + f" · 全组重算 {result.elapsed_ms:.2f} ms"
         )
         if self.hex_edit.toPlainText() != encoded_hex:
             self.hex_edit.setPlainText(encoded_hex)

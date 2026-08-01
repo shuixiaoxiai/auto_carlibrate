@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 from typing import Callable, Dict, Optional, Tuple
+from uuid import uuid4
 
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QAction, QCloseEvent
@@ -33,7 +34,7 @@ from ..session import (
     SessionStateError,
 )
 from .device_panel import DevicePanel
-from .direction_chart import DirectionChartCard
+from .direction_chart import MEAN_VIEW, DirectionChartCard
 from .parameter_panel import ParameterPanel
 from .project_dialog import ProjectPickerDialog
 from .project_workspace import ProjectWorkspace
@@ -79,8 +80,10 @@ class CalibrationMainWindow(QMainWindow):
         self.cards: Dict[Direction, DirectionChartCard] = {}
         self.last_what_if_refresh_ms: Optional[float] = None
         self._pending_measurement: Optional[
-            Tuple[Direction, Optional[float], Optional[float], float]
+            Tuple[Direction, int, Optional[float], Optional[float], float]
         ] = None
+        self._active_capture_group: Optional[int] = None
+        self._active_recording_id: Optional[str] = None
 
         self.setWindowTitle(f"BLE Calibration · {project_name}")
         self.setMinimumSize(1100, 720)
@@ -107,6 +110,7 @@ class CalibrationMainWindow(QMainWindow):
         if self.workspace is not None:
             self.autosave_timer.start()
         self._last_preview_sample_count = -1
+        self._last_preview_render_monotonic = 0.0
         if self.manual_capture is not None:
             self.capture_timer.start()
             if self.live_source_factory is not None:
@@ -124,8 +128,10 @@ class CalibrationMainWindow(QMainWindow):
                 self.data_status.setText("● Mock 手动采集待机")
 
         self.parameter_panel.set_document(self.state.current_document)
-        for direction, card in self.cards.items():
-            card.set_dataset(self.state.dataset_for(direction))
+        self.recording_bar.set_default_walking_speed(
+            self.state.default_walking_speed_mps
+        )
+        self._sync_all_cards(reset_selection=True)
         if self.live_source_factory is not None:
             initial_message = "ZLG 实车采集工作区已就绪"
         elif self.manual_capture is not None:
@@ -228,6 +234,9 @@ class CalibrationMainWindow(QMainWindow):
         self.recording_bar.finish_requested.connect(self._finish_manual_recording)
         self.recording_bar.redo_requested.connect(self._redo_direction)
         self.recording_bar.complete_test_requested.connect(self._complete_test)
+        self.recording_bar.default_speed_edited.connect(
+            self._update_default_walking_speed
+        )
         layout.addWidget(self.recording_bar)
 
         guide = QFrame()
@@ -245,6 +254,8 @@ class CalibrationMainWindow(QMainWindow):
         for direction in Direction:
             card = DirectionChartCard(direction)
             card.measurements_edited.connect(self._queue_measurement_edit)
+            card.view_changed.connect(self._change_chart_view)
+            card.delete_requested.connect(self._delete_group)
             self.cards[direction] = card
             layout.addWidget(card)
 
@@ -331,9 +342,9 @@ class CalibrationMainWindow(QMainWindow):
             source_attached=False,
         )
         self.recording_bar.set_source_ready(False)
-        recorded = len(self.state.datasets)
+        recorded = self.state.record_count
         self.data_status.setText(
-            f"● ZLG 未连接 · 已记录 {recorded}/8"
+            f"● ZLG 未连接 · 已记录 {recorded}/24"
         )
 
     def _set_live_data_status(
@@ -361,7 +372,7 @@ class CalibrationMainWindow(QMainWindow):
             self.data_status.setStyleSheet("color:#f4c95d; padding:0 10px;")
         else:
             self.data_status.setText(
-                f"● ZLG 未连接 · 已记录 {len(self.state.datasets)}/8"
+                f"● ZLG 未连接 · 已记录 {self.state.record_count}/24"
             )
             self.data_status.setStyleSheet("color:#f4c95d; padding:0 10px;")
 
@@ -419,12 +430,14 @@ class CalibrationMainWindow(QMainWindow):
     def _queue_measurement_edit(
         self,
         direction: Direction,
+        group_index: int,
         lock_distance: Optional[float],
         unlock_distance: Optional[float],
         walking_speed: float,
     ) -> None:
         self._pending_measurement = (
             direction,
+            group_index,
             lock_distance,
             unlock_distance,
             walking_speed,
@@ -434,7 +447,7 @@ class CalibrationMainWindow(QMainWindow):
     def _apply_measurement_edit(self) -> None:
         if self._pending_measurement is None:
             return
-        direction, lock_distance, unlock_distance, walking_speed = (
+        direction, group_index, lock_distance, unlock_distance, walking_speed = (
             self._pending_measurement
         )
         self._pending_measurement = None
@@ -443,11 +456,25 @@ class CalibrationMainWindow(QMainWindow):
             lock_distance,
             unlock_distance,
             walking_speed,
+            group_index,
         )
-        card = self.cards[direction]
-        card.set_dataset(self.state.dataset_for(direction))
-        self._refresh_result(f"{direction.label}距离/步速已更新")
+        self._refresh_result(
+            f"{direction.label}第 {group_index} 组距离/步速已更新",
+            changed_direction=direction,
+        )
         self._mark_dirty()
+
+    def _update_default_walking_speed(self, walking_speed: float) -> None:
+        try:
+            self.state.update_default_walking_speed(walking_speed)
+        except ValueError as error:
+            self.statusBar().showMessage(f"默认步速无效：{error}", 5000)
+            return
+        self._mark_dirty()
+        self.statusBar().showMessage(
+            f"项目默认步速已更新为 {walking_speed:.1f} m/s，仅影响后续采集",
+            5000,
+        )
 
     def _start_manual_recording(
         self,
@@ -456,21 +483,9 @@ class CalibrationMainWindow(QMainWindow):
     ) -> None:
         if self.manual_capture is None:
             return
-        existing = self.state.dataset_for(direction)
-        if existing is not None:
-            choice = QMessageBox.question(
-                self,
-                "重录方向",
-                f"{direction.label}已有记录，开始后将以新记录替换。是否继续？",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.No,
-            )
-            if choice != QMessageBox.StandardButton.Yes:
-                return
-            self.state.remove_direction(direction)
-            self.cards[direction].set_dataset(None)
-            self._refresh_result(f"{direction.label}旧记录已移除，等待重录")
-            self._mark_dirty()
+        group_index = self.state.next_capture_group(direction)
+        recording_id = str(uuid4())
+        replacing = self.state.dataset_for(direction, group_index) is not None
         recorder = None
         try:
             if (
@@ -480,7 +495,11 @@ class CalibrationMainWindow(QMainWindow):
                 raise SessionStateError("请先连接 ZLG CAN 设备")
             raw_data_file = None
             if self.workspace is not None:
-                recorder, raw_data_file = self.workspace.capture_target(direction)
+                recorder, raw_data_file = self.workspace.capture_target(
+                    direction,
+                    group_index,
+                    recording_id,
+                )
             if self.source_factory is not None:
                 self.manual_capture.begin(
                     direction,
@@ -488,6 +507,8 @@ class CalibrationMainWindow(QMainWindow):
                     walking_speed_mps=walking_speed,
                     raw_data_file=raw_data_file,
                     recorder=recorder,
+                    group_index=group_index,
+                    recording_id=recording_id,
                 )
             else:
                 self.manual_capture.begin_connected(
@@ -495,6 +516,8 @@ class CalibrationMainWindow(QMainWindow):
                     walking_speed_mps=walking_speed,
                     raw_data_file=raw_data_file,
                     recorder=recorder,
+                    group_index=group_index,
+                    recording_id=recording_id,
                 )
         except (OSError, ValueError, RuntimeError, SessionStateError) as error:
             if recorder is not None:
@@ -502,40 +525,72 @@ class CalibrationMainWindow(QMainWindow):
             self.recording_bar.status_label.setText(f"无法开始：{error}")
             self.recording_bar.status_label.setStyleSheet("color:#ff6b78;")
             return
+        self._active_capture_group = group_index
+        self._active_recording_id = recording_id
+        self.cards[direction].set_selected_view(group_index)
         self._last_preview_sample_count = -1
+        self._last_preview_render_monotonic = 0.0
         self.recording_bar.reset_distances()
         self.recording_bar.set_recording(True)
         if self.device_panel is not None:
             self.device_panel.set_recording(True)
-        self.data_status.setText(f"● 正在记录 {direction.label}")
+        action = "覆盖" if replacing else "新增"
+        self.data_status.setText(
+            f"● 正在记录 {direction.label}第 {group_index} 组"
+        )
         self.statusBar().showMessage(
-            f"{direction.label}开始记录：远离等待闭锁，随后靠近等待解锁",
+            f"{direction.label}开始{action}第 {group_index} 组："
+            "远离等待闭锁，随后靠近等待解锁",
             5000,
         )
 
     def _redo_direction(self, direction: Direction) -> None:
         if self.manual_capture is None or self.manual_capture.is_active:
             return
-        if self.state.dataset_for(direction) is None:
+        group_index = self.state.latest_group_for(direction)
+        if group_index is None:
             self.recording_bar.status_label.setText(
                 f"{direction.label}尚无记录，可直接点击“开始记录”"
             )
             return
+        self._delete_group(direction, group_index)
+
+    def _change_chart_view(self, direction: Direction, view_index: int) -> None:
+        self._render_card(direction)
+        view_name = "均值" if view_index == MEAN_VIEW else f"第 {view_index} 组"
+        self.statusBar().showMessage(
+            f"{direction.label}已切换到{view_name}",
+            2500,
+        )
+
+    def _delete_group(self, direction: Direction, group_index: int) -> None:
+        if self.manual_capture is not None and self.manual_capture.is_active:
+            QMessageBox.information(self, "正在记录", "请先结束当前方向。")
+            return
+        if self.state.dataset_for(direction, group_index) is None:
+            return
         choice = QMessageBox.question(
             self,
-            "重录方向",
-            f"确定删除{direction.label}当前记录并重新采集？",
+            "删除组数据",
+            f"确定删除{direction.label}第 {group_index} 组数据？\n"
+            "原始采集文件会保留，但本组将从项目和统计中移除。",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No,
         )
         if choice != QMessageBox.StandardButton.Yes:
             return
-        self.state.remove_direction(direction)
-        self.cards[direction].set_dataset(None)
-        self._refresh_result(f"{direction.label}已清除，等待重录")
-        self.recording_bar.reset_distances()
+        self.state.remove_dataset(direction, group_index)
+        latest_group = self.state.latest_group_for(direction)
+        self.cards[direction].set_group_availability(
+            self.state.group_indices(direction),
+            preferred_view=latest_group,
+        )
+        self._refresh_result(
+            f"{direction.label}第 {group_index} 组已删除",
+            changed_direction=direction,
+        )
         self.recording_bar.status_label.setText(
-            f"{direction.label}旧记录已清除，请点击“开始记录”"
+            f"{direction.label}第 {group_index} 组已删除；下次采集优先补空位"
         )
         self._mark_dirty()
         self._save_recovery_snapshot()
@@ -581,11 +636,18 @@ class CalibrationMainWindow(QMainWindow):
             or preview.record.sample_count == self._last_preview_sample_count
         ):
             return
+        now = time.monotonic()
+        if (
+            not snapshot.source_finished
+            and now - self._last_preview_render_monotonic < 0.5
+        ):
+            return
+        self._last_preview_render_monotonic = now
         self._last_preview_sample_count = preview.record.sample_count
         card = self.cards[preview.record.direction]
-        card.set_dataset(preview)
-        card.set_enabled_for_data(False)
-        preview_result = self.state.service.recompute(
+        card.set_selected_view(preview.record.group_index)
+        card.set_dataset(preview, editable=False)
+        preview_result = self.state.service.single_service.recompute(
             self.state.current_document.parameters,
             (preview,),
         )
@@ -612,20 +674,32 @@ class CalibrationMainWindow(QMainWindow):
             return
         self.state.upsert_dataset(dataset)
         card = self.cards[dataset.record.direction]
-        card.set_dataset(dataset)
-        card.set_enabled_for_data(True)
-        self._refresh_result(f"{dataset.record.direction.label}已手动结束并保存")
+        card.set_group_availability(
+            self.state.group_indices(dataset.record.direction),
+            preferred_view=dataset.record.group_index,
+        )
+        self._refresh_result(
+            f"{dataset.record.direction.label}第 {dataset.record.group_index} 组"
+            "已手动结束并保存",
+            changed_direction=dataset.record.direction,
+        )
+        self._active_capture_group = None
+        self._active_recording_id = None
         complete = dataset.record.status is DirectionStatus.COMPLETE
         self.recording_bar.set_finished(dataset.record.direction, complete)
         if self.device_panel is not None:
             self.device_panel.set_recording(False)
-        recorded = tuple(item.record.direction for item in self.state.datasets)
+        recorded = self.state.recorded_directions
         self.recording_bar.select_next_unrecorded(recorded)
         if self.live_source_factory is None:
-            self.data_status.setText(f"● 已记录 {len(recorded)}/8")
+            self.data_status.setText(
+                f"● 已记录 {self.state.record_count}/24 · "
+                f"方向 {len(recorded)}/8"
+            )
         else:
             self.data_status.setText(
-                f"● ZLG 已连接 · 已记录 {len(recorded)}/8"
+                f"● ZLG 已连接 · 已记录 {self.state.record_count}/24 · "
+                f"方向 {len(recorded)}/8"
             )
         self._mark_dirty()
         self._save_recovery_snapshot()
@@ -746,12 +820,14 @@ class CalibrationMainWindow(QMainWindow):
         self.project_name = workspace.name
         self.project_label.setText(workspace.name)
         self.parameter_panel.set_document(state.current_document)
-        for direction, card in self.cards.items():
-            card.set_dataset(state.dataset_for(direction))
+        self.recording_bar.set_default_walking_speed(
+            state.default_walking_speed_mps
+        )
+        self._sync_all_cards(reset_selection=True)
         self._dirty = not workspace.persisted
         self.setWindowTitle(f"BLE Calibration · {workspace.name}")
         self._refresh_result("项目工作区已切换")
-        recorded = tuple(item.record.direction for item in state.datasets)
+        recorded = state.recorded_directions
         self.recording_bar.select_next_unrecorded(recorded)
         if self.live_source_factory is not None:
             self.recording_bar.set_source_ready(False)
@@ -763,26 +839,120 @@ class CalibrationMainWindow(QMainWindow):
                 source_attached=False,
             )
             self.data_status.setText(
-                f"● ZLG 未连接 · 已记录 {len(recorded)}/8"
+                f"● ZLG 未连接 · 已记录 {state.record_count}/24 · "
+                f"方向 {len(recorded)}/8"
             )
         else:
             self.recording_bar.set_source_ready(True)
-            self.data_status.setText(f"● 已记录 {len(recorded)}/8")
+            self.data_status.setText(
+                f"● 已记录 {state.record_count}/24 · 方向 {len(recorded)}/8"
+            )
 
-    def _refresh_result(self, message: str) -> None:
+    def _refresh_result(
+        self,
+        message: str,
+        *,
+        changed_direction: Optional[Direction] = None,
+    ) -> None:
         result = self.state.result
         self.parameter_panel.set_result(
             result,
             using_original=self.state.using_original,
             encoded_hex=self.state.encoded_hex(),
         )
-        parameters = self.state.current_document.parameters
-        for direction, card in self.cards.items():
-            card.set_analysis(result.directions.get(direction), parameters)
+        if changed_direction is None:
+            for direction in self.cards:
+                self._refresh_card_analysis(direction)
+        else:
+            card = self.cards[changed_direction]
+            preferred = (
+                self.state.latest_group_for(changed_direction)
+                if card.selected_view is None
+                else None
+            )
+            card.set_group_availability(
+                self.state.group_indices(changed_direction),
+                preferred_view=preferred,
+            )
+            self._render_card(changed_direction)
         self.statusBar().showMessage(
             f"{message} · 核心重算 {result.elapsed_ms:.2f} ms",
             5000,
         )
+
+    def _sync_all_cards(self, *, reset_selection: bool = False) -> None:
+        for direction, card in self.cards.items():
+            if reset_selection:
+                card.set_selected_view(None)
+            preferred = (
+                self.state.latest_group_for(direction)
+                if card.selected_view is None
+                else None
+            )
+            card.set_group_availability(
+                self.state.group_indices(direction),
+                preferred_view=preferred,
+            )
+            self._render_card(direction)
+
+    def _render_card(self, direction: Direction) -> None:
+        card = self.cards[direction]
+        parameters = self.state.current_document.parameters
+        if card.selected_view == MEAN_VIEW:
+            mean = self.state.mean_for(direction)
+            if mean is None:
+                card.set_dataset(None, editable=False)
+                card.set_analysis(None, parameters)
+                return
+            card.set_dataset(
+                mean.dataset,
+                editable=False,
+                mean_context=(
+                    mean.group_count,
+                    mean.lock_result_count,
+                    mean.unlock_result_count,
+                ),
+            )
+            card.set_analysis(mean.analysis, parameters)
+            return
+        group_index = card.selected_view
+        dataset = (
+            None
+            if group_index is None
+            else self.state.dataset_for(direction, group_index)
+        )
+        card.set_dataset(dataset, editable=True)
+        analysis = (
+            None
+            if group_index is None
+            else self.state.result.analysis_for(direction, group_index)
+        )
+        card.set_analysis(analysis, parameters)
+
+    def _refresh_card_analysis(self, direction: Direction) -> None:
+        card = self.cards[direction]
+        parameters = self.state.current_document.parameters
+        if card.selected_view == MEAN_VIEW:
+            mean = self.state.mean_for(direction)
+            if mean is None:
+                card.set_analysis(None, parameters)
+                return
+            card.set_mean_context(
+                (
+                    mean.group_count,
+                    mean.lock_result_count,
+                    mean.unlock_result_count,
+                )
+            )
+            card.set_analysis(mean.analysis, parameters)
+            return
+        group_index = card.selected_view
+        analysis = (
+            None
+            if group_index is None
+            else self.state.result.analysis_for(direction, group_index)
+        )
+        card.set_analysis(analysis, parameters)
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if self._automated_exit:

@@ -18,9 +18,15 @@ from .enums import (
     Node,
     StrategyKind,
 )
-from .schema import ANALYSIS_VERSION, CAN_JSONL_SCHEMA_VERSION, PROJECT_SCHEMA_VERSION
+from .schema import (
+    ANALYSIS_VERSION,
+    CAN_JSONL_SCHEMA_VERSION,
+    LEGACY_PROJECT_SCHEMA_VERSIONS,
+    PROJECT_SCHEMA_VERSION,
+)
 
 NODE_COUNT = len(NODE_ORDER)
+MAX_DIRECTION_GROUPS = 3
 RssiValues = Tuple[Optional[int], Optional[int], Optional[int], Optional[int], Optional[int]]
 NodeTimes = Tuple[
     Optional[float],
@@ -255,6 +261,13 @@ class DirectionRecord:
     vehicle_events: Tuple[VehicleEvent, ...] = ()
     sample_count: int = 0
     raw_data_file: Optional[str] = None
+    group_index: int = 1
+    recording_id: str = field(default_factory=lambda: str(uuid4()))
+    recorded_at: Optional[str] = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat(
+            timespec="microseconds"
+        )
+    )
 
     def __post_init__(self) -> None:
         if self.start_timestamp is not None:
@@ -277,6 +290,14 @@ class DirectionRecord:
                 _require_finite_non_negative(name, value)
         if self.sample_count < 0:
             raise ValueError("sample_count cannot be negative")
+        if not 1 <= self.group_index <= MAX_DIRECTION_GROUPS:
+            raise ValueError(
+                f"group_index must be between 1 and {MAX_DIRECTION_GROUPS}"
+            )
+        if not self.recording_id.strip():
+            raise ValueError("recording_id cannot be empty")
+        if self.recorded_at is not None and not self.recorded_at.strip():
+            raise ValueError("recorded_at cannot be empty")
         if any(event.direction is not self.direction for event in self.vehicle_events):
             raise ValueError("all vehicle events must belong to this direction")
 
@@ -298,12 +319,17 @@ class DirectionRecord:
             "vehicle_events": [event.to_dict() for event in self.vehicle_events],
             "sample_count": self.sample_count,
             "raw_data_file": self.raw_data_file,
+            "group_index": self.group_index,
+            "recording_id": self.recording_id,
+            "recorded_at": self.recorded_at,
         }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "DirectionRecord":
+        direction = Direction(str(data["direction"]))
+        group_index = int(data.get("group_index", 1))
         return cls(
-            direction=Direction(str(data["direction"])),
+            direction=direction,
             status=DirectionStatus(str(data.get("status", DirectionStatus.NOT_STARTED.value))),
             start_timestamp=(
                 None if data.get("start_timestamp") is None else float(data["start_timestamp"])
@@ -329,6 +355,14 @@ class DirectionRecord:
             raw_data_file=(
                 None if data.get("raw_data_file") is None else str(data["raw_data_file"])
             ),
+            group_index=group_index,
+            recording_id=str(
+                data.get("recording_id")
+                or f"legacy-{direction.value}-group-{group_index}"
+            ),
+            recorded_at=(
+                None if data.get("recorded_at") is None else str(data["recorded_at"])
+            ),
         )
 
 
@@ -347,6 +381,7 @@ class CalibrationProject:
     )
     original_cloud_hex: Optional[str] = None
     directions: Tuple[DirectionRecord, ...] = ()
+    default_walking_speed_mps: float = 1.0
     analysis_version: str = ANALYSIS_VERSION
 
     def __post_init__(self) -> None:
@@ -354,11 +389,20 @@ class CalibrationProject:
             raise ValueError("project name cannot be empty")
         if self.schema != PROJECT_SCHEMA_VERSION:
             raise ValueError(f"unsupported project schema: {self.schema}")
+        if (
+            not math.isfinite(self.default_walking_speed_mps)
+            or not 0.1 <= self.default_walking_speed_mps <= 5.0
+        ):
+            raise ValueError("default_walking_speed_mps must be between 0.1 and 5.0")
         seen = set()
         for record in self.directions:
-            if record.direction in seen:
-                raise ValueError(f"duplicate direction: {record.direction.value}")
-            seen.add(record.direction)
+            key = (record.direction, record.group_index)
+            if key in seen:
+                raise ValueError(
+                    "duplicate direction group: "
+                    f"{record.direction.value}/{record.group_index}"
+                )
+            seen.add(key)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -369,13 +413,17 @@ class CalibrationProject:
             "updated_at": self.updated_at,
             "original_cloud_hex": self.original_cloud_hex,
             "directions": [record.to_dict() for record in self.directions],
+            "default_walking_speed_mps": self.default_walking_speed_mps,
             "analysis_version": self.analysis_version,
         }
 
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "CalibrationProject":
+        schema = str(data["schema"])
+        if schema not in (PROJECT_SCHEMA_VERSION, *LEGACY_PROJECT_SCHEMA_VERSIONS):
+            raise ValueError(f"unsupported project schema: {schema}")
         return cls(
-            schema=str(data["schema"]),
+            schema=PROJECT_SCHEMA_VERSION,
             project_id=str(data["project_id"]),
             name=str(data["name"]),
             created_at=str(data["created_at"]),
@@ -387,6 +435,9 @@ class CalibrationProject:
             ),
             directions=tuple(
                 DirectionRecord.from_dict(item) for item in data.get("directions", [])
+            ),
+            default_walking_speed_mps=float(
+                data.get("default_walking_speed_mps", 1.0)
             ),
             analysis_version=str(data.get("analysis_version", ANALYSIS_VERSION)),
         )

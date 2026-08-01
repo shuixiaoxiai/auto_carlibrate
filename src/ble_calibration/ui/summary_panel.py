@@ -80,11 +80,11 @@ class QualityCard(QFrame):
         layout.addLayout(metrics)
 
         detail = QGridLayout()
-        detail.addWidget(QLabel("良方向"), 0, 0)
+        detail.addWidget(QLabel("良数据"), 0, 0)
         self.good_directions_label = QLabel("无")
         self.good_directions_label.setWordWrap(True)
         detail.addWidget(self.good_directions_label, 0, 1)
-        detail.addWidget(QLabel("差方向"), 1, 0)
+        detail.addWidget(QLabel("差数据"), 1, 0)
         self.poor_directions_label = QLabel("无")
         self.poor_directions_label.setWordWrap(True)
         detail.addWidget(self.poor_directions_label, 1, 1)

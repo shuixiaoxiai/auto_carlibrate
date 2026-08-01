@@ -112,6 +112,22 @@ class DirectionSessionControllerTests(unittest.TestCase):
         self.assertEqual(record.actual_lock_distance_m, item["lock_distance_m"])
         self.assertGreater(record.end_timestamp, record.event(EventType.UNLOCK).timestamp)
 
+    def test_capture_preserves_target_group_and_recording_identity(self) -> None:
+        controller = DirectionSessionController()
+        item = self.manifest["directions"][0]
+        controller.select_direction(Direction.FRONT)
+        controller.start(
+            group_index=2,
+            recording_id="front-second-capture",
+        )
+        for frame in self.frames_for_manifest_direction(item):
+            controller.process_frame(frame)
+        record = controller.manual_stop(item["end_time"])
+
+        self.assertEqual(record.group_index, 2)
+        self.assertEqual(record.recording_id, "front-second-capture")
+        self.assertIsNotNone(record.recorded_at)
+
     def test_all_eight_mock_directions_complete(self) -> None:
         controller = DirectionSessionController()
         for item in self.manifest["directions"]:

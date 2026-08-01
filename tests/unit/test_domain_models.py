@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 
 from ble_calibration.domain import (
     ActionOrigin,
@@ -100,6 +101,13 @@ class DomainModelTests(unittest.TestCase):
         record = DirectionRecord(direction=Direction.FRONT)
         with self.assertRaises(ValueError):
             CalibrationProject(name="duplicate", directions=(record, record))
+
+        second_group = replace(record, group_index=2, recording_id="front-group-2")
+        project = CalibrationProject(
+            name="same direction groups",
+            directions=(record, second_group),
+        )
+        self.assertEqual(len(project.directions), 2)
 
 
 if __name__ == "__main__":

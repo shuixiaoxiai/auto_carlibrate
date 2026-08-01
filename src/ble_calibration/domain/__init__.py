@@ -20,6 +20,7 @@ from .models import (
     RssiSample,
     StrategyEventResult,
     VehicleEvent,
+    MAX_DIRECTION_GROUPS,
 )
 
 __all__ = [
@@ -40,4 +41,5 @@ __all__ = [
     "StrategyEventResult",
     "StrategyKind",
     "VehicleEvent",
+    "MAX_DIRECTION_GROUPS",
 ]

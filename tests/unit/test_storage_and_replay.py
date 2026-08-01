@@ -1,7 +1,9 @@
 import json
+import sqlite3
 import tempfile
 import threading
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from ble_calibration.analysis import (
@@ -110,6 +112,78 @@ class StorageAndReplayTests(unittest.TestCase):
         self.assertEqual(loaded.vehicle_vin, "VIN-TEST-001")
         self.assertEqual(len(summaries), 1)
         self.assertEqual(summaries[0].direction_count, 8)
+        self.assertEqual(summaries[0].record_count, 8)
+
+    def test_v1_database_migrates_existing_directions_to_first_group(self) -> None:
+        database = self.root / "legacy.sqlite3"
+        connection = sqlite3.connect(str(database))
+        connection.executescript(
+            """
+            CREATE TABLE projects (
+                project_id TEXT PRIMARY KEY,
+                schema_version TEXT NOT NULL,
+                name TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                original_cloud_hex TEXT,
+                current_cloud_hex TEXT,
+                analysis_version TEXT NOT NULL,
+                capture_path TEXT,
+                capture_format TEXT,
+                vehicle_name TEXT,
+                vehicle_vin TEXT
+            );
+            CREATE TABLE directions (
+                project_id TEXT NOT NULL,
+                direction TEXT NOT NULL,
+                record_json TEXT NOT NULL,
+                PRIMARY KEY (project_id, direction)
+            );
+            """
+        )
+        legacy_record = self.datasets[0].record.to_dict()
+        for key in ("group_index", "recording_id", "recorded_at"):
+            legacy_record.pop(key)
+        connection.execute(
+            """
+            INSERT INTO projects VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                self.project.project_id,
+                "ble-calibration-project/v1",
+                "旧项目",
+                self.project.created_at,
+                self.project.updated_at,
+                self.project.original_cloud_hex,
+                self.stored.current_cloud_hex,
+                self.project.analysis_version,
+                self.stored.capture_path,
+                self.stored.capture_format,
+                self.stored.vehicle_name,
+                self.stored.vehicle_vin,
+            ),
+        )
+        connection.execute(
+            "INSERT INTO directions VALUES (?, ?, ?)",
+            (
+                self.project.project_id,
+                self.datasets[0].record.direction.value,
+                json.dumps(legacy_record),
+            ),
+        )
+        connection.execute("PRAGMA user_version = 1")
+        connection.commit()
+        connection.close()
+
+        with ProjectRepository(database) as repository:
+            loaded = repository.load_project(self.project.project_id)
+            version = repository._connection.execute(
+                "PRAGMA user_version"
+            ).fetchone()[0]
+
+        self.assertEqual(version, 2)
+        self.assertEqual(loaded.project.directions[0].group_index, 1)
+        self.assertEqual(loaded.project.default_walking_speed_mps, 1.0)
 
     def test_parameter_analysis_history_and_recovery(self) -> None:
         result = EightDirectionRecomputeService().recompute(
@@ -159,6 +233,44 @@ class StorageAndReplayTests(unittest.TestCase):
         self.assertEqual(original_result.directions, replay_result.directions)
         self.assertEqual(original_result.lock_summary, replay_result.lock_summary)
         self.assertEqual(original_result.unlock_summary, replay_result.unlock_summary)
+
+    def test_same_direction_multiple_groups_save_and_replay(self) -> None:
+        first = self.datasets[0]
+        second = DirectionDataset(
+            replace(
+                first.record,
+                group_index=2,
+                recording_id="same-direction-group-2",
+                recorded_at="2026-08-01T00:00:02+00:00",
+            ),
+            first.samples,
+        )
+        project = CalibrationProject(
+            name="同方向多组",
+            original_cloud_hex="00AABB",
+            directions=(first.record, second.record),
+        )
+        stored = StoredProject(
+            project=project,
+            current_cloud_hex="00AABB",
+            capture_path=str(self.capture_path),
+            capture_format="jsonl",
+        )
+        database = self.root / "multi-group.sqlite3"
+
+        with ProjectRepository(database) as repository:
+            repository.save_project(stored)
+            loaded = repository.load_project(project.project_id)
+            summary = repository.list_projects()[0]
+        rebuilt = ReplayService().rebuild_project(loaded)
+
+        self.assertEqual(
+            [(item.record.direction, item.record.group_index) for item in rebuilt],
+            [(Direction.FRONT, 1), (Direction.FRONT, 2)],
+        )
+        self.assertEqual(summary.direction_count, 1)
+        self.assertEqual(summary.record_count, 2)
+        self.assertEqual(rebuilt[0].samples, rebuilt[1].samples)
 
     def test_blf_reader_is_lazy_and_frames_are_converted(self) -> None:
         readers = []

@@ -33,9 +33,9 @@ class ProjectPickerDialog(QDialog):
 
         layout = QVBoxLayout(self)
         layout.addWidget(QLabel(f"项目库：{self.database_path}"))
-        self.table = QTableWidget(0, 4)
+        self.table = QTableWidget(0, 5)
         self.table.setHorizontalHeaderLabels(
-            ["项目名称", "方向数", "更新时间", "原始附件"]
+            ["项目名称", "方向数", "记录数", "更新时间", "原始附件"]
         )
         self.table.setSelectionBehavior(
             QTableWidget.SelectionBehavior.SelectRows
@@ -55,10 +55,11 @@ class ProjectPickerDialog(QDialog):
             name_item.setData(Qt.ItemDataRole.UserRole, project.project_id)
             self.table.setItem(row, 0, name_item)
             self.table.setItem(row, 1, QTableWidgetItem(str(project.direction_count)))
-            self.table.setItem(row, 2, QTableWidgetItem(project.updated_at))
+            self.table.setItem(row, 2, QTableWidgetItem(str(project.record_count)))
+            self.table.setItem(row, 3, QTableWidgetItem(project.updated_at))
             self.table.setItem(
                 row,
-                3,
+                4,
                 QTableWidgetItem(project.capture_path or "分方向附件"),
             )
         self.table.resizeColumnsToContents()

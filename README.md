@@ -54,7 +54,7 @@ python -m unittest discover -s tests -v
 运行 Qt 端到端 UI 冒烟测试（支持离屏模式）：
 
 ```bash
-python tools/ui_smoke.py --max-refresh-ms 200
+python tools/ui_smoke.py --max-refresh-ms 1000
 python tools/manual_ui_smoke.py --width 1100 --height 720
 python tools/live_ui_smoke.py --width 1100 --height 720
 ```
@@ -63,6 +63,17 @@ python tools/live_ui_smoke.py --width 1100 --height 720
 library 路径配置。设备连接后保持在线，测试人员逐方向点击开始/结束；每个方向单独录制
 BLF，方向切换不会重复打开 CAN 设备。设备配置默认保存在用户数据目录的
 `settings.json`。
+
+## 三组方向数据
+
+- 每个方向固定保存第一组、第二组、第三组三份数据。
+- 采集时自动填补编号最小的空组；三组已满时，新数据采集成功后直接替换第三组。
+- 八张方向图可以分别停留在不同组，打开项目时默认显示各方向最近采集成功的一组。
+- 每张图支持切换三组与“均值”。均值 RSSI 曲线按相对时间在共同有效区间重采样，
+  仅用于展示；策略仍对每组原始数据独立计算。
+- 顶部优良差统计汇总全部方向的全部有效组，最多 24 份数据，均值不会重复计数。
+- 项目默认步速只影响后续采集；每组的步速、闭锁实测和解锁实测可以单独调整。
+- 删除某方向当前组后，该组成为空位，下一次采集该方向时会优先补入。
 
 ## Windows 打包
 

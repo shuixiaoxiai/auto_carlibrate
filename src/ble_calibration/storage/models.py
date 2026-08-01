@@ -24,6 +24,7 @@ class ProjectSummary:
     name: str
     updated_at: str
     direction_count: int
+    record_count: int
     capture_path: Optional[str]
 
 

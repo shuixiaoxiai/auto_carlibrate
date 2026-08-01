@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Tuple
+from uuid import uuid4
 
 from ..analysis import DirectionDataset
 from ..can.recording import (
@@ -14,7 +15,7 @@ from ..can.recording import (
     RotatingBlfRecorder,
 )
 from ..cloud import decode_cloud
-from ..domain import CalibrationProject, Direction
+from ..domain import MAX_DIRECTION_GROUPS, CalibrationProject, Direction
 from ..replay import ReplayService
 from ..storage import ProjectRepository, StoredProject
 from .state import CalibrationUiState
@@ -69,13 +70,25 @@ class ProjectWorkspace:
     def capture_target(
         self,
         direction: Direction,
+        group_index: int = 1,
+        recording_id: Optional[str] = None,
     ) -> Tuple[FrameRecorder, str]:
+        if not 1 <= group_index <= MAX_DIRECTION_GROUPS:
+            raise ValueError(
+                f"group_index must be between 1 and {MAX_DIRECTION_GROUPS}"
+            )
+        recording_id = recording_id or str(uuid4())
+        group_directory = (
+            self.capture_directory
+            / direction.value
+            / f"group-{group_index}"
+        )
         if self.capture_format == "jsonl":
-            path = self.capture_directory / f"{direction.value}.jsonl"
+            path = group_directory / f"{recording_id}.jsonl"
             return JsonlFrameRecorder(path), str(path.resolve())
         if self.capture_format == "blf":
             recorder = RotatingBlfRecorder(
-                self.capture_directory / direction.value,
+                group_directory / recording_id,
                 channel=self.capture_channel,
             )
             return recorder, str(recorder.paths[0].resolve())
@@ -92,9 +105,13 @@ class ProjectWorkspace:
                 dataset.record
                 for dataset in sorted(
                     state.datasets,
-                    key=lambda item: item.record.direction.index,
+                    key=lambda item: (
+                        item.record.direction.index,
+                        item.record.group_index,
+                    ),
                 )
             ),
+            default_walking_speed_mps=state.default_walking_speed_mps,
         )
         return StoredProject(
             project=project,
@@ -150,6 +167,7 @@ class ProjectWorkspace:
             decode_cloud(original_hex),
             datasets,
             current_document=decode_cloud(current_hex),
+            default_walking_speed_mps=stored.project.default_walking_speed_mps,
         )
         workspace = cls(
             database_path=database_path,

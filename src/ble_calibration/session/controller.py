@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from typing import Dict, Optional, Tuple
+from uuid import uuid4
 
 from ..domain.enums import (
     Direction,
@@ -11,7 +12,13 @@ from ..domain.enums import (
     EventType,
     SessionPhase,
 )
-from ..domain.models import CanFrame, DirectionRecord, RssiSample, VehicleEvent
+from ..domain.models import (
+    MAX_DIRECTION_GROUPS,
+    CanFrame,
+    DirectionRecord,
+    RssiSample,
+    VehicleEvent,
+)
 from ..processing.pipeline import CanFrameProcessor, FrameProcessingResult
 
 
@@ -43,6 +50,8 @@ class DirectionSessionController:
         self._lock_distance_m: Optional[float] = None
         self._unlock_distance_m: Optional[float] = None
         self._raw_data_file: Optional[str] = None
+        self._group_index = 1
+        self._recording_id = str(uuid4())
         self.unexpected_event_count = 0
 
     @property
@@ -86,6 +95,9 @@ class DirectionSessionController:
             vehicle_events=tuple(self._active_events),
             sample_count=len(self._active_samples),
             raw_data_file=self._raw_data_file,
+            group_index=self._group_index,
+            recording_id=self._recording_id,
+            recorded_at=None,
         )
 
     def select_direction(self, direction: Direction) -> None:
@@ -103,6 +115,8 @@ class DirectionSessionController:
         self,
         walking_speed_mps: Optional[float] = None,
         raw_data_file: Optional[str] = None,
+        group_index: int = 1,
+        recording_id: Optional[str] = None,
     ) -> None:
         if self.phase is not SessionPhase.READY or self.selected_direction is None:
             raise SessionStateError("select a direction before starting")
@@ -113,6 +127,10 @@ class DirectionSessionController:
         )
         if not math.isfinite(speed) or speed <= 0:
             raise ValueError("walking_speed_mps must be greater than zero")
+        if not 1 <= group_index <= MAX_DIRECTION_GROUPS:
+            raise ValueError(
+                f"group_index must be between 1 and {MAX_DIRECTION_GROUPS}"
+            )
         self.processor.reset()
         self._active_samples = []
         self._active_events = []
@@ -123,6 +141,8 @@ class DirectionSessionController:
         self._lock_distance_m = None
         self._unlock_distance_m = None
         self._raw_data_file = raw_data_file
+        self._group_index = group_index
+        self._recording_id = recording_id or str(uuid4())
         self.unexpected_event_count = 0
         self.phase = SessionPhase.WAITING_LOCK
 
@@ -225,6 +245,8 @@ class DirectionSessionController:
             vehicle_events=tuple(self._active_events),
             sample_count=len(self._active_samples),
             raw_data_file=self._raw_data_file,
+            group_index=self._group_index,
+            recording_id=self._recording_id,
         )
         self._records[self.selected_direction] = record
         self._samples[self.selected_direction] = tuple(self._active_samples)

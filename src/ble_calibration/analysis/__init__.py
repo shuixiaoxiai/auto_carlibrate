@@ -8,6 +8,12 @@ from .recompute import (
     RecomputeResult,
     WhatIfSession,
 )
+from .grouped import (
+    DirectionGroupRef,
+    GroupedRecomputeResult,
+    MeanDirectionView,
+    ThreeGroupRecomputeService,
+)
 
 __all__ = [
     "DirectionDataset",
@@ -15,6 +21,10 @@ __all__ = [
     "QualitySummary",
     "RecomputeResult",
     "WhatIfSession",
+    "DirectionGroupRef",
+    "GroupedRecomputeResult",
+    "MeanDirectionView",
+    "ThreeGroupRecomputeService",
     "distance_grade",
     "lock_grade",
     "project_action_distance",

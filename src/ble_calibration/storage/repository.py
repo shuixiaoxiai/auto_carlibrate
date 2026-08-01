@@ -7,9 +7,10 @@ import sqlite3
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Union
 
-from ..analysis.recompute import RecomputeResult
+from ..analysis import GroupedRecomputeResult, RecomputeResult
+from ..domain.schema import PROJECT_SCHEMA_VERSION
 from ..domain.models import CalibrationProject, DirectionRecord
 from .models import (
     AnalysisSnapshot,
@@ -19,7 +20,7 @@ from .models import (
 )
 from .serialization import recompute_result_to_dict
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class ProjectNotFoundError(KeyError):
@@ -60,16 +61,19 @@ class ProjectRepository:
                     capture_path TEXT,
                     capture_format TEXT,
                     vehicle_name TEXT,
-                    vehicle_vin TEXT
+                    vehicle_vin TEXT,
+                    default_walking_speed_mps REAL NOT NULL DEFAULT 1.0
                 );
 
                 CREATE TABLE IF NOT EXISTS directions (
                     project_id TEXT NOT NULL,
                     direction TEXT NOT NULL,
+                    group_index INTEGER NOT NULL DEFAULT 1,
                     record_json TEXT NOT NULL,
-                    PRIMARY KEY (project_id, direction),
+                    PRIMARY KEY (project_id, direction, group_index),
                     FOREIGN KEY (project_id) REFERENCES projects(project_id)
-                        ON DELETE CASCADE
+                        ON DELETE CASCADE,
+                    CHECK (group_index BETWEEN 1 AND 3)
                 );
 
                 CREATE TABLE IF NOT EXISTS parameter_history (
@@ -100,7 +104,48 @@ class ProjectRepository:
                 );
                 """
             )
+            self._migrate_v1_schema()
             self._connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+
+    def _migrate_v1_schema(self) -> None:
+        project_columns = {
+            row["name"]
+            for row in self._connection.execute("PRAGMA table_info(projects)")
+        }
+        if "default_walking_speed_mps" not in project_columns:
+            self._connection.execute(
+                "ALTER TABLE projects ADD COLUMN "
+                "default_walking_speed_mps REAL NOT NULL DEFAULT 1.0"
+            )
+
+        direction_columns = {
+            row["name"]
+            for row in self._connection.execute("PRAGMA table_info(directions)")
+        }
+        if "group_index" in direction_columns:
+            return
+        self._connection.execute("ALTER TABLE directions RENAME TO directions_v1")
+        self._connection.execute(
+            """
+            CREATE TABLE directions (
+                project_id TEXT NOT NULL,
+                direction TEXT NOT NULL,
+                group_index INTEGER NOT NULL DEFAULT 1,
+                record_json TEXT NOT NULL,
+                PRIMARY KEY (project_id, direction, group_index),
+                FOREIGN KEY (project_id) REFERENCES projects(project_id)
+                    ON DELETE CASCADE,
+                CHECK (group_index BETWEEN 1 AND 3)
+            )
+            """
+        )
+        self._connection.execute(
+            """
+            INSERT INTO directions (project_id, direction, group_index, record_json)
+            SELECT project_id, direction, 1, record_json FROM directions_v1
+            """
+        )
+        self._connection.execute("DROP TABLE directions_v1")
 
     def save_project(self, stored: StoredProject) -> None:
         project = stored.project
@@ -112,8 +157,9 @@ class ProjectRepository:
                 INSERT INTO projects (
                     project_id, schema_version, name, created_at, updated_at,
                     original_cloud_hex, current_cloud_hex, analysis_version,
-                    capture_path, capture_format, vehicle_name, vehicle_vin
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    capture_path, capture_format, vehicle_name, vehicle_vin,
+                    default_walking_speed_mps
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(project_id) DO UPDATE SET
                     schema_version=excluded.schema_version,
                     name=excluded.name,
@@ -124,7 +170,8 @@ class ProjectRepository:
                     capture_path=excluded.capture_path,
                     capture_format=excluded.capture_format,
                     vehicle_name=excluded.vehicle_name,
-                    vehicle_vin=excluded.vehicle_vin
+                    vehicle_vin=excluded.vehicle_vin,
+                    default_walking_speed_mps=excluded.default_walking_speed_mps
                 """,
                 (
                     project.project_id,
@@ -139,6 +186,7 @@ class ProjectRepository:
                     stored.capture_format,
                     stored.vehicle_name,
                     stored.vehicle_vin,
+                    project.default_walking_speed_mps,
                 ),
             )
             self._connection.execute(
@@ -147,13 +195,15 @@ class ProjectRepository:
             )
             self._connection.executemany(
                 """
-                INSERT INTO directions (project_id, direction, record_json)
-                VALUES (?, ?, ?)
+                INSERT INTO directions (
+                    project_id, direction, group_index, record_json
+                ) VALUES (?, ?, ?, ?)
                 """,
                 (
                     (
                         project.project_id,
                         record.direction.value,
+                        record.group_index,
                         json.dumps(record.to_dict(), ensure_ascii=False),
                     )
                     for record in project.directions
@@ -170,24 +220,32 @@ class ProjectRepository:
                 raise ProjectNotFoundError(project_id)
             direction_rows = self._connection.execute(
                 """
-                SELECT record_json FROM directions
+                SELECT group_index, record_json FROM directions
                 WHERE project_id = ?
-                ORDER BY direction
+                ORDER BY direction, group_index
                 """,
                 (project_id,),
             ).fetchall()
-        directions = tuple(sorted((
-            DirectionRecord.from_dict(json.loads(item["record_json"]))
-            for item in direction_rows
-        ), key=lambda record: record.direction.index))
+        parsed_records = []
+        for item in direction_rows:
+            payload = json.loads(item["record_json"])
+            payload.setdefault("group_index", int(item["group_index"]))
+            parsed_records.append(DirectionRecord.from_dict(payload))
+        directions = tuple(sorted(
+            parsed_records,
+            key=lambda record: (record.direction.index, record.group_index),
+        ))
         project = CalibrationProject(
             project_id=row["project_id"],
-            schema=row["schema_version"],
+            schema=PROJECT_SCHEMA_VERSION,
             name=row["name"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             original_cloud_hex=row["original_cloud_hex"],
             directions=directions,
+            default_walking_speed_mps=float(
+                row["default_walking_speed_mps"]
+            ),
             analysis_version=row["analysis_version"],
         )
         return StoredProject(
@@ -204,7 +262,8 @@ class ProjectRepository:
             rows = self._connection.execute(
                 """
                 SELECT p.project_id, p.name, p.updated_at, p.capture_path,
-                       COUNT(d.direction) AS direction_count
+                       COUNT(DISTINCT d.direction) AS direction_count,
+                       COUNT(d.direction) AS record_count
                 FROM projects p
                 LEFT JOIN directions d ON d.project_id = p.project_id
                 GROUP BY p.project_id
@@ -217,6 +276,7 @@ class ProjectRepository:
                 name=row["name"],
                 updated_at=row["updated_at"],
                 direction_count=int(row["direction_count"]),
+                record_count=int(row["record_count"]),
                 capture_path=row["capture_path"],
             )
             for row in rows
@@ -272,7 +332,7 @@ class ProjectRepository:
     def save_analysis(
         self,
         project_id: str,
-        result: RecomputeResult,
+        result: Union[RecomputeResult, GroupedRecomputeResult],
         cloud_hex: Optional[str],
     ) -> AnalysisSnapshot:
         created_at = _utc_now()

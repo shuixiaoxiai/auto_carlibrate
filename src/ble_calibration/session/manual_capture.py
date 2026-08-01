@@ -116,6 +116,8 @@ class ManualCaptureCoordinator:
         walking_speed_mps: float = 1.0,
         raw_data_file: Optional[str] = None,
         recorder: Optional[FrameRecorder] = None,
+        group_index: int = 1,
+        recording_id: Optional[str] = None,
     ) -> None:
         with self._lock:
             if self._worker is not None:
@@ -124,6 +126,8 @@ class ManualCaptureCoordinator:
                 direction,
                 walking_speed_mps=walking_speed_mps,
                 raw_data_file=raw_data_file,
+                group_index=group_index,
+                recording_id=recording_id,
             )
             self._source_status = None
             self._persistent_source = False
@@ -143,6 +147,8 @@ class ManualCaptureCoordinator:
         walking_speed_mps: float = 1.0,
         raw_data_file: Optional[str] = None,
         recorder: Optional[FrameRecorder] = None,
+        group_index: int = 1,
+        recording_id: Optional[str] = None,
     ) -> None:
         """Start one direction while retaining the connected live CAN worker."""
         with self._lock:
@@ -161,6 +167,8 @@ class ManualCaptureCoordinator:
                 direction,
                 walking_speed_mps=walking_speed_mps,
                 raw_data_file=raw_data_file,
+                group_index=group_index,
+                recording_id=recording_id,
             )
             self._direction_recorder = recorder
 
@@ -170,6 +178,8 @@ class ManualCaptureCoordinator:
         *,
         walking_speed_mps: float,
         raw_data_file: Optional[str],
+        group_index: int,
+        recording_id: Optional[str],
     ) -> None:
         if self.controller.active_record_snapshot() is not None:
             raise SessionStateError("finish the active direction first")
@@ -180,6 +190,8 @@ class ManualCaptureCoordinator:
         self.controller.start(
             walking_speed_mps=walking_speed_mps,
             raw_data_file=raw_data_file,
+            group_index=group_index,
+            recording_id=recording_id,
         )
 
     def _on_frame(self, frame) -> None:

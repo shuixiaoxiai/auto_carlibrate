@@ -7,11 +7,13 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import pyqtgraph as pg
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QButtonGroup,
     QDoubleSpinBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QPushButton,
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
@@ -39,6 +41,9 @@ STRATEGY_LABELS = {
     StrategyKind.MASTER_THAN_SLAVE: "主强从弱",
     StrategyKind.BEVEL_ANGLE: "斜角补偿",
 }
+
+MEAN_VIEW = 0
+GROUP_LABELS = {1: "第一组", 2: "第二组", 3: "第三组"}
 
 
 def _display_time(timestamp: float, origin: float) -> str:
@@ -153,7 +158,9 @@ class EventDetail(QWidget):
 
 
 class DirectionChartCard(QFrame):
-    measurements_edited = Signal(object, object, object, float)
+    measurements_edited = Signal(object, int, object, object, float)
+    view_changed = Signal(object, int)
+    delete_requested = Signal(object, int)
 
     def __init__(
         self,
@@ -163,6 +170,9 @@ class DirectionChartCard(QFrame):
         super().__init__(parent)
         self.direction = direction
         self.dataset: Optional[DirectionDataset] = None
+        self.selected_view: Optional[int] = None
+        self._editable = False
+        self._mean_context: Optional[Tuple[int, int, int]] = None
         self._origin = 0.0
         self._loading_measurements = False
         self._curves: Dict[object, pg.PlotDataItem] = {}
@@ -186,6 +196,32 @@ class DirectionChartCard(QFrame):
         self.result_label.setStyleSheet("color: #9dc7ef;")
         header.addWidget(self.result_label)
         header.addStretch()
+        self.group_button_group = QButtonGroup(self)
+        self.group_button_group.setExclusive(True)
+        self.group_buttons: Dict[int, QPushButton] = {}
+        for group_index, label in GROUP_LABELS.items():
+            button = QPushButton(label)
+            button.setCheckable(True)
+            button.setEnabled(False)
+            button.clicked.connect(
+                lambda checked, index=group_index: self._select_view(index, checked)
+            )
+            self.group_button_group.addButton(button, group_index)
+            self.group_buttons[group_index] = button
+            header.addWidget(button)
+        self.mean_button = QPushButton("均值")
+        self.mean_button.setCheckable(True)
+        self.mean_button.setEnabled(False)
+        self.mean_button.clicked.connect(
+            lambda checked: self._select_view(MEAN_VIEW, checked)
+        )
+        self.group_button_group.addButton(self.mean_button, MEAN_VIEW)
+        header.addWidget(self.mean_button)
+        self.delete_button = QPushButton("删除当前组")
+        self.delete_button.setObjectName("dangerButton")
+        self.delete_button.setEnabled(False)
+        self.delete_button.clicked.connect(self._emit_delete)
+        header.addWidget(self.delete_button)
         header.addWidget(QLabel("闭锁实测"))
         self.lock_distance = self._distance_spin()
         self.lock_distance.valueChanged.connect(self._emit_measurements)
@@ -237,12 +273,65 @@ class DirectionChartCard(QFrame):
         return spin
 
     def set_enabled_for_data(self, enabled: bool) -> None:
-        self.lock_distance.setEnabled(enabled)
-        self.unlock_distance.setEnabled(enabled)
-        self.walking_speed.setEnabled(enabled)
+        editable = enabled and self._editable
+        self.lock_distance.setEnabled(editable)
+        self.unlock_distance.setEnabled(editable)
+        self.walking_speed.setEnabled(editable)
 
-    def set_dataset(self, dataset: Optional[DirectionDataset]) -> None:
+    def set_group_availability(
+        self,
+        available_groups: Sequence[int],
+        *,
+        preferred_view: Optional[int] = None,
+    ) -> None:
+        available = set(available_groups)
+        for group_index, button in self.group_buttons.items():
+            button.setEnabled(group_index in available)
+        self.mean_button.setEnabled(bool(available))
+        if preferred_view is not None and (
+            preferred_view == MEAN_VIEW or preferred_view in available
+        ):
+            self.set_selected_view(preferred_view)
+        elif self.selected_view not in available and self.selected_view != MEAN_VIEW:
+            self.set_selected_view(max(available) if available else None)
+        elif self.selected_view == MEAN_VIEW and not available:
+            self.set_selected_view(None)
+        self.delete_button.setEnabled(
+            self.selected_view in available and self.selected_view != MEAN_VIEW
+        )
+
+    def set_selected_view(self, view_index: Optional[int]) -> None:
+        self.selected_view = view_index
+        for group_index, button in self.group_buttons.items():
+            button.setChecked(view_index == group_index)
+        self.mean_button.setChecked(view_index == MEAN_VIEW)
+        self.delete_button.setEnabled(
+            view_index is not None
+            and view_index != MEAN_VIEW
+            and self.group_buttons[view_index].isEnabled()
+        )
+
+    def _select_view(self, view_index: int, checked: bool) -> None:
+        if not checked:
+            return
+        self.set_selected_view(view_index)
+        self.view_changed.emit(self.direction, view_index)
+
+    def _emit_delete(self) -> None:
+        if self.selected_view is None or self.selected_view == MEAN_VIEW:
+            return
+        self.delete_requested.emit(self.direction, self.selected_view)
+
+    def set_dataset(
+        self,
+        dataset: Optional[DirectionDataset],
+        *,
+        editable: bool = True,
+        mean_context: Optional[Tuple[int, int, int]] = None,
+    ) -> None:
         self.dataset = dataset
+        self._editable = editable
+        self._mean_context = mean_context
         self._clear_curves()
         if dataset is None:
             self.status_label.setText("未记录")
@@ -270,7 +359,16 @@ class DirectionChartCard(QFrame):
             DirectionStatus.RECORDING: "记录中",
             DirectionStatus.NOT_STARTED: "未开始",
         }[record.status]
-        self.status_label.setText(f"{status} · {len(dataset.samples)} 点")
+        if mean_context is None:
+            group_label = GROUP_LABELS.get(record.group_index, "")
+            self.status_label.setText(
+                f"{group_label} · {status} · {len(dataset.samples)} 点"
+            )
+        else:
+            group_count, _, _ = mean_context
+            self.status_label.setText(
+                f"均值 · {group_count} 组 · {len(dataset.samples)} 点"
+            )
         if not dataset.samples:
             self.result_label.setText("")
             self.lock_detail.clear()
@@ -295,6 +393,14 @@ class DirectionChartCard(QFrame):
         self.plot.setXRange(0, duration, padding=0.01)
         self._render_distance_zones()
 
+    def set_mean_context(self, context: Tuple[int, int, int]) -> None:
+        self._mean_context = context
+        group_count, _, _ = context
+        if self.dataset is not None:
+            self.status_label.setText(
+                f"均值 · {group_count} 组 · {len(self.dataset.samples)} 点"
+            )
+
     def _clear_curves(self) -> None:
         for curve in self._curves.values():
             self.plot.removeItem(curve)
@@ -308,12 +414,19 @@ class DirectionChartCard(QFrame):
         items.clear()
 
     def _emit_measurements(self) -> None:
-        if self._loading_measurements or self.dataset is None:
+        if (
+            self._loading_measurements
+            or self.dataset is None
+            or not self._editable
+            or self.selected_view is None
+            or self.selected_view == MEAN_VIEW
+        ):
             return
         lock_value = self.lock_distance.value()
         unlock_value = self.unlock_distance.value()
         self.measurements_edited.emit(
             self.direction,
+            self.selected_view,
             None if lock_value < 0 else lock_value,
             None if unlock_value < 0 else unlock_value,
             self.walking_speed.value(),
@@ -347,6 +460,12 @@ class DirectionChartCard(QFrame):
         self.result_label.setText(
             f"闭 {_grade_text(analysis.lock)}　解 {_grade_text(analysis.unlock)}"
         )
+        if self._mean_context is not None:
+            group_count, lock_count, unlock_count = self._mean_context
+            self.result_label.setText(
+                self.result_label.text()
+                + f"　参与：闭 {lock_count}/{group_count} · 解 {unlock_count}/{group_count}"
+            )
 
     def _add_event_lines(self, result: Optional[StrategyEventResult]) -> None:
         if result is None:
