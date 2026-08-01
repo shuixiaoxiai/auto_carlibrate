@@ -192,7 +192,7 @@ python3 tools/mock_can_generate.py --seed 20260730
 ### AC-018 Mock 打包验收
 
 - [ ] Windows 10/11 干净系统不安装 Python也能运行。
-- [ ] 安装包包含 `python-can==4.6.1`、`zlgcan==0.3.0` 和兼容的 `clgcan_driver.pyd`。
+- [ ] 安装包包含 `python-can==4.6.1`、`zlgcan==0.3.0` 和兼容的 `zlgcan_driver.pyd`。
 - [ ] 能生成或加载 Mock 数据。
 - [ ] 能完成八方向展示、参数修改、保存和重开。
 - [ ] Mock 连续循环运行 2 小时无崩溃。

@@ -48,6 +48,8 @@ class ApplicationShellTests(unittest.TestCase):
             package_dir.mkdir()
             package_file = package_dir / "__init__.py"
             package_file.write_text("", encoding="utf-8")
+            native_driver = package_dir / "zlgcan_driver.pyd"
+            native_driver.write_bytes(b"fake-native-driver")
             modules = {
                 "can": SimpleNamespace(
                     interfaces=SimpleNamespace(
@@ -75,6 +77,10 @@ class ApplicationShellTests(unittest.TestCase):
             ["zlgcan.can.interfaces.zlgcan", "ZCanBus"],
         )
         self.assertEqual(report["device_type"], "41")
+        self.assertEqual(
+            report["native_drivers"],
+            [str(native_driver.resolve())],
+        )
 
     def test_generate_mock_command_writes_eight_directions(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

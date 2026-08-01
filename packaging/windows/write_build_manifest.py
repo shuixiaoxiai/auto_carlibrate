@@ -89,12 +89,12 @@ def build_manifest(
     onedir_root = onedir_exe.parent
     driver_paths = sorted(
         path
-        for path in onedir_root.rglob("*clgcan_driver*.pyd")
+        for path in onedir_root.rglob("*zlgcan_driver*.pyd")
         if path.is_file()
     )
     if include_zlgcan and not driver_paths:
         raise RuntimeError(
-            "include_zlgcan was requested but clgcan_driver.pyd is absent"
+            "include_zlgcan was requested but zlgcan_driver.pyd is absent"
         )
 
     required_acceptance = (

@@ -11,7 +11,7 @@
 - Windows 10/11、x64 构建前置校验；无硬件 CI 使用 CPython 3.9，实车构建复用已验证
   `can_read_save.py` 的解释器。
 - Mock 包与包含 `zlgcan==0.3.0` 包两种构建模式。
-- 打包前和打包后 `clgcan_driver.pyd` 双重检查。
+- 打包前和打包后 `zlgcan_driver.pyd` 双重检查。
 - 冻结应用自动启动验收：
   - 8 个方向和 40 条 RSSI 曲线可加载；
   - 修改 What-if 后闭锁/解锁优良差汇总同步重算；
@@ -21,7 +21,7 @@
 - 模拟实时源自动完成 8 方向工作流，验证一次连接跨方向复用、配置持久化、方向原始文件
   和闭锁/解锁汇总。
 - 构建后生成 `build-manifest.json`，记录 EXE、ZIP、Setup、验收截图和
-  `clgcan_driver.pyd` 的 SHA-256、大小及环境版本；同时归档阈值/策略性能、手动工作流、
+  `zlgcan_driver.pyd` 的 SHA-256、大小及环境版本；同时归档阈值/策略性能、手动工作流、
   模拟 ZLG 工作流三份 JSON 报告和对应源码 revision。
 - 两小时 Mock CAN 循环采集、解码、What-if 重算和内存门禁脚本。
 - Windows 2022、Python 3.9 x64 构建和产物上传工作流。
@@ -53,7 +53,7 @@ Python 跟踪内存峰值 3.078 MB。
 - 在无 Python 的干净 Windows 电脑安装和启动 `Setup.exe`。
 - 执行完整 7,200 秒 Mock 长稳并归档 `mock-stability.json`。
 - 使用能运行 `tools/can_read_save.py` 的环境执行 `-IncludeZlgcan` 构建，验证 Windows
-  onedir 中的 `clgcan_driver.pyd`。
+  onedir 中的 `zlgcan_driver.pyd`。
 
 仓库当前没有 Git remote，无法从本机触发已配置的 Windows GitHub Actions runner。
 因此本步骤暂不标记完成，也不把 macOS 等价产物冒充为 Windows EXE。

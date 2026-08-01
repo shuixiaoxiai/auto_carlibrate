@@ -8,8 +8,11 @@
 - PyInstaller 和 Pillow 版本见 `build-requirements.txt`。
 - 需要安装 Inno Setup 6；只生成 onedir 和 ZIP 时可使用 `-SkipInstaller`。
 
+PyInstaller 构建会完整收集 numpy，并排除其测试目录，以兼容 PyInstaller 6.11 与
+numpy 2.5 组合下可能遗漏 `numpy._core._exceptions` 等纯 Python 子模块的问题。
+
 ZLG 实车候选包还要求当前 Python 环境已经安装 `zlgcan==0.3.0`，并且包内存在与
-当前 64 位 Python 匹配的 `clgcan_driver.pyd`。构建脚本不会替换这套已经过实车脚本
+当前 64 位 Python 匹配的 `zlgcan_driver.pyd`。构建脚本不会替换这套已经过实车脚本
 验证的依赖；请直接在能运行 `tools/can_read_save.py` 的同一个 Python 环境中使用
 `-IncludeZlgcan`。
 
@@ -86,13 +89,13 @@ packaging\windows\build.ps1 `
   -IncludeZlgcan
 ```
 
-脚本会在打包前校验 `zlgcan==0.3.0` 和 `clgcan_driver.pyd`，并在打包后再次检查
+脚本会在打包前校验 `zlgcan==0.3.0` 和 `zlgcan_driver.pyd`，并在打包后再次检查
 onedir 中确实包含该 `.pyd`。冻结后的 EXE 还会执行一次不打开硬件的后端自检，确认
 `python-can` 能发现 `zlgcan` 入口、`ZCAN_USBCANFD_200U` 枚举可导入，并生成
 `dist\acceptance\zlg-bundle.json`。任一检查失败都不会产出通过状态。
 
 `build-manifest.json` 中的 `include_zlgcan` 必须为 `true`，`native_drivers` 必须列出
-`clgcan_driver.pyd`，并记录 EXE/ZIP/Setup 的绝对路径、大小和 SHA-256。该文件用于把
+`zlgcan_driver.pyd`，并记录 EXE/ZIP/Setup 的绝对路径、大小和 SHA-256。该文件用于把
 Windows 构建结果回传后核对产物，而不是只凭控制台的“构建成功”判断。
 正式构建时 `source_tests_run` 还必须为 `true`，并包含三份桌面流程报告；
 `source_revision` 用来核对 EXE 对应的源码提交。

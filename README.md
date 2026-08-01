@@ -90,7 +90,7 @@ packaging\windows\build.ps1 `
 
 - `python-can==4.6.1`
 - `zlgcan==0.3.0`
-- `zlgcan` 包自带的 `clgcan_driver.pyd`
+- `zlgcan` 包自带的 `zlgcan_driver.pyd`
 
 精确依赖记录在 `requirements/windows-can.txt`。实车 EXE 直接使用已经能够运行
 `tools/can_read_save.py` 的同一个 64 位 Python 环境构建；脚本会自动检查依赖和原生

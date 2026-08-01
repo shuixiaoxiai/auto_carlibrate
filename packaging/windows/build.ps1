@@ -59,7 +59,7 @@ function Invoke-BuildPython {
 
     & $script:PythonExecutable @Arguments
     if ($LASTEXITCODE -ne 0) {
-        throw "Python command failed with exit code $LASTEXITCODE: $script:PythonExecutable $($Arguments -join ' ')"
+        throw "Python command failed with exit code ${LASTEXITCODE}: $script:PythonExecutable $($Arguments -join ' ')"
     }
 }
 
@@ -89,7 +89,7 @@ Invoke-BuildPython -Arguments @("-m", "pip", "install", "python-can==4.6.1")
 if ($IncludeZlgcan) {
     Invoke-BuildPython -Arguments @(
         "-c",
-        "from importlib import metadata; from pathlib import Path; import zlgcan; from zlgcan.zlgcan import ZCANDeviceType; assert metadata.version('zlgcan') == '0.3.0'; files=list(Path(zlgcan.__file__).parent.rglob('*clgcan_driver*.pyd')); assert files, 'clgcan_driver.pyd not found'; print(files)"
+        "from importlib import metadata; from pathlib import Path; import zlgcan; from zlgcan.zlgcan import ZCANDeviceType; assert metadata.version('zlgcan') == '0.3.0'; files=list(Path(zlgcan.__file__).parent.parent.rglob('*zlgcan_driver*.pyd')); assert files, 'zlgcan_driver.pyd not found'; print(files)"
     )
 }
 
@@ -142,11 +142,11 @@ Invoke-BuildPython -Arguments $VerifyArguments
 if ($IncludeZlgcan) {
     $BundledDriver = Get-ChildItem `
         -Path dist\BLECalibration `
-        -Filter "*clgcan_driver*.pyd" `
+        -Filter "*zlgcan_driver*.pyd" `
         -Recurse |
         Select-Object -First 1
     if ($null -eq $BundledDriver) {
-        throw "The built bundle does not contain clgcan_driver.pyd."
+        throw "The built bundle does not contain zlgcan_driver.pyd."
     }
     Write-Host "Bundled ZLG native driver: $($BundledDriver.FullName)"
 }

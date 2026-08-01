@@ -60,7 +60,7 @@ def passing_manifest():
             "zlg-bundle.json": {
                 "ok": True,
                 "zlgcan_version": "0.3.0",
-                "native_drivers": ["clgcan_driver.pyd"],
+                "native_drivers": ["zlgcan_driver.pyd"],
             },
         },
     }

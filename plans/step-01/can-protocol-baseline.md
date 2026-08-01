@@ -40,7 +40,7 @@
 | 操作系统 | Windows 10/11 64 位 |
 | `python-can` | `4.6.1` |
 | `zlgcan` | `0.3.0` |
-| `clgcan_driver` | `zlgcan` 包自带的原生 `.pyd` |
+| `zlgcan_driver` | `zlgcan` 包自带的原生 `.pyd` |
 
 `tools/can_read_save.py` 已在目标 Windows 电脑上验证能够读取上述 CAN 数据。ZLG 系统
 驱动的具体版本不阻塞开发，在最终 Windows 实车安装矩阵中记录。

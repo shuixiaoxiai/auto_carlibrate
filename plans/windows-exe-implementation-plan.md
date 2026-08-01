@@ -184,7 +184,7 @@ recording_state
 - 桌面 UI：PySide6。
 - 图表：pyqtgraph。
 - CAN：`python-can==4.6.1` + `zlgcan==0.3.0`。
-- ZLG 原生扩展：`zlgcan` 包自带的 `clgcan_driver.pyd`。
+- ZLG 原生扩展：`zlgcan` 包自带的 `zlgcan_driver.pyd`。
 - 原始录制：python-can `BLFWriter`。
 - 离线回放：python-can `BLFReader`。
 - 项目数据：SQLite。
@@ -626,7 +626,7 @@ distance_at_action
 
 1. 目标系统为 Windows 10/11 64 位。
 2. CAN 依赖为 `python-can==4.6.1`、`zlgcan==0.3.0`，原生扩展使用包内
-   `clgcan_driver.pyd`。
+   `zlgcan_driver.pyd`。
 3. `0x55A` 的 `1/2` 直接作为实测解锁/闭锁动作时刻。
 4. 两个实际距离分别绑定 `0x55A` 的实际闭锁、解锁时刻。
 5. 实线为条件开始满足时刻，虚线为动作时刻；What-if 修改后两者一起移动。
@@ -636,7 +636,7 @@ distance_at_action
 不阻塞第二步、在对应阶段验证：
 
 1. 每个 RSSI 报文的实车周期、设备时间戳行为和 stale 超时最终值。
-2. Windows 打包所用 CPython 版本与 `clgcan_driver.pyd` ABI 是否一致。
+2. Windows 打包所用 CPython 版本与 `zlgcan_driver.pyd` ABI 是否一致。
 3. ZLG 系统驱动版本、VC++ Runtime 和干净电脑安装步骤。
 4. BLF 是否随项目复制、首版是否增加 CSV/图片导出等次要产品选择。
 

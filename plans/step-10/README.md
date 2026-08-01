@@ -52,7 +52,7 @@ python tools/live_ui_smoke.py --width 1100 --height 720
 
 - [ ] 在已能运行 `tools/can_read_save.py` 的 Windows 10/11 64 位电脑执行
   `packaging\windows\build.ps1 -IncludeZlgcan`。
-- [ ] 确认冻结目录包含 `clgcan_driver.pyd`，并实际连接 ZLG CAN 盒。
+- [ ] 确认冻结目录包含 `zlgcan_driver.pyd`，并实际连接 ZLG CAN 盒。
 - [ ] 验证设备未插入、被占用、错误通道、错误波特率、断线和 library 路径错误。
 - [ ] 实车采集 8 个方向，并逐方向对比 `0x55A` 请求、RSSI 曲线和距离输入。
 - [ ] 收集黄金 BLF，回放结果与采集完成时结果一致。

@@ -270,7 +270,7 @@ What-if 重算，减少实车反复行走次数。
 
 - 支持 Windows 10/11 64 位，不支持 Windows 7 和 32 位系统。
 - CAN 软件依赖基线为 `python-can==4.6.1`、`zlgcan==0.3.0`。
-- `clgcan_driver` 原生 `.pyd` 由 `zlgcan` 包提供。
+- `zlgcan_driver` 原生 `.pyd` 由 `zlgcan` 包提供。
 - 正式版本需要在未安装 Python 的干净系统验收。
 
 ## 7. 当前默认假设
@@ -284,7 +284,7 @@ What-if 重算，减少实车反复行走次数。
 | A-003 | 单方向由测试人员手动开始和手动结束；实际解锁后继续保留 RSSI | 影响会话状态机和 What-if 可计算范围 |
 | A-004 | 距离输入绑定 `0x55A` 实车事件时刻 | 影响 What-if 距离推算 |
 | A-005 | 节点 stale 超时先设为报文周期的 3 倍 | 需要实车报文周期后确定数值 |
-| A-006 | `clgcan_driver.pyd` 随 `zlgcan==0.3.0` 打包；ZLG 系统驱动由安装说明提供 | 影响安装体验 |
+| A-006 | `zlgcan_driver.pyd` 随 `zlgcan==0.3.0` 打包；ZLG 系统驱动由安装说明提供 | 影响安装体验 |
 | A-007 | 首版使用 standalone/onedir 安装，不追求单文件 EXE | 降低原生 DLL 路径风险 |
 
 ## 8. 已冻结的高影响决策
@@ -302,7 +302,7 @@ What-if 重算，减少实车反复行走次数。
 - 仅支持 Windows 10/11 64 位。
 - `python-can==4.6.1`。
 - `zlgcan==0.3.0`。
-- `clgcan_driver` 为 `zlgcan` 包自带 `.pyd`。
+- `zlgcan_driver` 为 `zlgcan` 包自带 `.pyd`。
 - `tools/can_read_save.py` 已在目标 Windows 电脑上验证可以读取 RSSI 和解闭锁数据。
 - 具体 ZLG 系统驱动版本不阻塞软件开发，在最终实车安装矩阵中记录并验证。
 
@@ -366,7 +366,7 @@ What-if 重算，减少实车反复行走次数。
 
 | 风险 | 应对 |
 | --- | --- |
-| `clgcan_driver.pyd` 与打包 Python ABI 不兼容 | 第二步在目标 Windows 记录 `python -VV` 和 `.pyd` 文件名，锁定构建版本 |
+| `zlgcan_driver.pyd` 与打包 Python ABI 不兼容 | 第二步在目标 Windows 记录 `python -VV` 和 `.pyd` 文件名，锁定构建版本 |
 | 三类 RSSI 报文不同步 | 保存节点时间戳、age 和 stale 状态，使用时间差而不是样本数判定 |
 | What-if 与 ECU 实际策略存在偏差 | 最终实车阶段使用 `0x55A` 逐方向建立黄金对比用例 |
 | 原始数据与派生数据混用 | 项目模型分离原始帧、会话输入、参数和计算结果 |

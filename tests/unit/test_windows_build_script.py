@@ -6,6 +6,12 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BUILD_SCRIPT = PROJECT_ROOT / "packaging" / "windows" / "build.ps1"
 PYPROJECT = PROJECT_ROOT / "pyproject.toml"
+PYINSTALLER_SPEC = PROJECT_ROOT / "packaging" / "windows" / "ble_calibration.spec"
+DRIVER_DISCOVERY_FILES = (
+    BUILD_SCRIPT,
+    PROJECT_ROOT / "src" / "ble_calibration" / "app" / "main.py",
+    PROJECT_ROOT / "packaging" / "windows" / "write_build_manifest.py",
+)
 
 
 class WindowsBuildScriptTests(unittest.TestCase):
@@ -26,6 +32,8 @@ class WindowsBuildScriptTests(unittest.TestCase):
         project = PYPROJECT.read_text(encoding="utf-8")
 
         self.assertIn("if ($LASTEXITCODE -ne 0)", script)
+        self.assertIn("exit code ${LASTEXITCODE}:", script)
+        self.assertNotIn("exit code $LASTEXITCODE:", script)
         self.assertNotRegex(
             script,
             re.compile(r"^python(?:\.exe)?\s", re.MULTILINE | re.IGNORECASE),
@@ -38,6 +46,18 @@ class WindowsBuildScriptTests(unittest.TestCase):
             '"PySide6==6.8.3; python_version >= \'3.13\'"',
             project,
         )
+
+    def test_windows_native_driver_and_numpy_are_collected(self) -> None:
+        spec = PYINSTALLER_SPEC.read_text(encoding="utf-8")
+
+        for path in DRIVER_DISCOVERY_FILES:
+            source = path.read_text(encoding="utf-8")
+            self.assertIn("zlgcan_driver", source, path)
+            self.assertNotIn("clgcan_driver", source, path)
+
+        self.assertIn('collect_all("numpy")', spec)
+        self.assertIn('raise RuntimeError("numpy could not be collected")', spec)
+        self.assertIn('module.endswith(".tests")', spec)
 
 
 if __name__ == "__main__":

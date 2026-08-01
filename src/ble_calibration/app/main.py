@@ -298,7 +298,7 @@ def zlg_runtime_report(import_module=importlib.import_module) -> Dict[str, Any]:
         )
         drivers = sorted(
             str(path.resolve())
-            for path in runtime_root.rglob("*clgcan_driver*.pyd")
+            for path in runtime_root.rglob("*zlgcan_driver*.pyd")
             if path.is_file()
         )
         return {

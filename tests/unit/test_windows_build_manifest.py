@@ -36,7 +36,7 @@ class WindowsBuildManifestTests(unittest.TestCase):
             onedir.mkdir()
             executable = onedir / "BLECalibration.exe"
             executable.write_bytes(b"fake-windows-executable")
-            driver = onedir / "_internal" / "clgcan_driver.pyd"
+            driver = onedir / "_internal" / "zlgcan_driver.pyd"
             driver.parent.mkdir()
             driver.write_bytes(b"fake-native-driver")
             archive = root / "BLECalibration-win64.zip"
