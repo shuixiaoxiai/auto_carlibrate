@@ -68,9 +68,20 @@ dist\acceptance\bundle-can.manifest.json
 dist\acceptance\source-ui.json
 dist\acceptance\manual-workflow.json
 dist\acceptance\live-workflow.json
+dist\acceptance\optimization-workflow.json
+dist\acceptance\optimization.png
 dist\acceptance\build-manifest.json
 dist\acceptance\release-audit.json
 ```
+
+构建前后可以在源码目录运行自动调参完整用户流程验收：
+
+```powershell
+python tools\optimization_ui_smoke.py --timeout-seconds 60
+```
+
+脚本会打开离屏界面，执行“预检 → 后台自动优化 → 结果安全检查 → 应用到 What-if”，并验证
+闭锁/解锁优秀率、无差、距离顺序、`<1m` 保护以及不会写车。
 
 `analysis.json` 必须记录：
 

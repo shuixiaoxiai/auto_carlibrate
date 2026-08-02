@@ -66,6 +66,7 @@ def main() -> int:
     def verify() -> None:
         try:
             assert len(window.cards) == 8
+            assert window.parameter_panel.optimize_button.isEnabled()
             assert all(len(card._curves) == 5 for card in window.cards.values())
             assert all(card.selected_view == 3 for card in window.cards.values())
             assert all(

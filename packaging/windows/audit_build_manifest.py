@@ -160,6 +160,43 @@ def audit_manifest(
         require(live.get("single_device_connection") is True, "live source reconnected per direction")
         require(live.get("raw_direction_files") == 8, "live raw files are incomplete")
 
+        optimization = results.get("optimization-workflow.json", {})
+        require(optimization.get("ok") is True, "automatic optimization workflow failed")
+        require(optimization.get("can_apply") is True, "automatic recommendation cannot apply")
+        require(
+            isinstance(optimization.get("lock_rate_percent"), (int, float))
+            and optimization["lock_rate_percent"] >= 75.0,
+            "automatic lock excellent rate is below 75%",
+        )
+        require(
+            isinstance(optimization.get("unlock_rate_percent"), (int, float))
+            and optimization["unlock_rate_percent"] >= 75.0,
+            "automatic unlock excellent rate is below 75%",
+        )
+        require(optimization.get("lock_poor") == 0, "automatic lock has poor samples")
+        require(optimization.get("unlock_poor") == 0, "automatic unlock has poor samples")
+        require(
+            optimization.get("ordering_violations") == 0,
+            "automatic recommendation violates lock/unlock distance ordering",
+        )
+        require(
+            optimization.get("near_unlock_violations") == 0,
+            "automatic recommendation introduces unlock below 1m",
+        )
+        require(
+            isinstance(optimization.get("minimum_gap_db"), (int, float))
+            and optimization["minimum_gap_db"] >= 3,
+            "automatic recommendation threshold gap is below 3 dB",
+        )
+        require(
+            optimization.get("applied_to_what_if") is True,
+            "automatic recommendation was not applied to What-if",
+        )
+        require(
+            optimization.get("vehicle_write") is False,
+            "automatic optimization performed a vehicle write",
+        )
+
     if require_zlgcan:
         zlg = results.get("zlg-bundle.json", {})
         require(zlg.get("ok") is True, "frozen ZLG backend check failed")

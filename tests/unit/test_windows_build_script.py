@@ -59,6 +59,13 @@ class WindowsBuildScriptTests(unittest.TestCase):
         self.assertIn('raise RuntimeError("numpy could not be collected")', spec)
         self.assertIn('module.endswith(".tests")', spec)
 
+    def test_windows_build_runs_automatic_optimization_acceptance(self) -> None:
+        script = BUILD_SCRIPT.read_text(encoding="utf-8")
+
+        self.assertIn("tools\\optimization_ui_smoke.py", script)
+        self.assertIn("optimization-workflow.json", script)
+        self.assertIn("optimization.png", script)
+
 
 if __name__ == "__main__":
     unittest.main()

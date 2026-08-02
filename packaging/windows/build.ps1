@@ -114,6 +114,12 @@ if (-not $SkipTests) {
         "--height", "720",
         "--report", "dist\acceptance\live-workflow.json"
     )
+    Invoke-BuildPython -Arguments @(
+        "tools\optimization_ui_smoke.py",
+        "--timeout-seconds", "60",
+        "--screenshot", "dist\acceptance\optimization.png",
+        "--report", "dist\acceptance\optimization-workflow.json"
+    )
 }
 
 Invoke-BuildPython -Arguments @("packaging\windows\generate_assets.py")

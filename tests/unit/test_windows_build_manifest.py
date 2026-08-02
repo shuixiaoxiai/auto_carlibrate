@@ -52,6 +52,8 @@ class WindowsBuildManifestTests(unittest.TestCase):
                 "source-ui.json",
                 "manual-workflow.json",
                 "live-workflow.json",
+                "optimization-workflow.json",
+                "optimization.png",
                 "analysis.json",
                 "analysis.png",
                 "manual.png",
@@ -77,6 +79,7 @@ class WindowsBuildManifestTests(unittest.TestCase):
             "ble-calibration-build-manifest/v1",
         )
         self.assertIn("source-ui.json", manifest["acceptance_results"])
+        self.assertIn("optimization-workflow.json", manifest["acceptance_results"])
         self.assertEqual(manifest["python_bits"], 64)
         self.assertTrue(manifest["include_zlgcan"])
         self.assertTrue(manifest["source_tests_run"])
@@ -95,6 +98,8 @@ class WindowsBuildManifestTests(unittest.TestCase):
                 "source-ui.json",
                 "manual-workflow.json",
                 "live-workflow.json",
+                "optimization-workflow.json",
+                "optimization.png",
                 "analysis.json",
                 "analysis.png",
                 "manual.png",

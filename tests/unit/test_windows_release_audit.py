@@ -61,6 +61,19 @@ def passing_manifest():
                 "single_device_connection": True,
                 "raw_direction_files": 8,
             },
+            "optimization-workflow.json": {
+                "ok": True,
+                "can_apply": True,
+                "lock_rate_percent": 75.0,
+                "unlock_rate_percent": 87.5,
+                "lock_poor": 0,
+                "unlock_poor": 0,
+                "ordering_violations": 0,
+                "near_unlock_violations": 0,
+                "minimum_gap_db": 5,
+                "applied_to_what_if": True,
+                "vehicle_write": False,
+            },
             "zlg-bundle.json": {
                 "ok": True,
                 "zlgcan_version": "0.3.0",
@@ -110,6 +123,31 @@ class WindowsReleaseAuditTests(unittest.TestCase):
             audit["failures"],
         )
         self.assertIn("unlock distances incomplete", audit["failures"])
+
+    def test_unsafe_automatic_recommendation_fails_release(self) -> None:
+        manifest = passing_manifest()
+        optimization = manifest["acceptance_results"][
+            "optimization-workflow.json"
+        ]
+        optimization["near_unlock_violations"] = 1
+        optimization["minimum_gap_db"] = 2
+
+        audit = audit_module.audit_manifest(
+            manifest,
+            require_windows=True,
+            require_zlgcan=True,
+            require_source_tests=True,
+        )
+
+        self.assertFalse(audit["ok"])
+        self.assertIn(
+            "automatic recommendation introduces unlock below 1m",
+            audit["failures"],
+        )
+        self.assertIn(
+            "automatic recommendation threshold gap is below 3 dB",
+            audit["failures"],
+        )
 
 
 if __name__ == "__main__":

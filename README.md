@@ -57,7 +57,23 @@ python -m unittest discover -s tests -v
 python tools/ui_smoke.py --max-core-ms 600 --max-refresh-ms 1000
 python tools/manual_ui_smoke.py --width 1100 --height 720
 python tools/live_ui_smoke.py --width 1100 --height 720
+python tools/optimization_ui_smoke.py --timeout-seconds 60
 ```
+
+## 自动阈值优化
+
+完成方向采集或打开历史项目后，在顶部 What-if 参数区点击“自动优化”。应用会先检查完整方向组，
+然后优先搜索 5 节点基础阈值；基础阈值达到平台仍不合格时，可以逐个尝试单一附加策略。
+
+- 非零阈值在当前值 `±10 dB` 内按 `1 dB` 搜索，并满足 `U-L >= 3 dB`。
+- 闭锁、解锁优秀率分别至少 `75%`，不允许差或未触发。
+- 每组闭锁距离必须大于解锁距离，不新增 `<1m` 解锁。
+- 方向关系只裁剪主动搜索节点；正式重放始终保留全部 5 节点。
+- 合格结果只能应用到 What-if，不会自动向车辆或云端写入。
+- 不合格结果仅展示最保守预览，“应用到 What-if”保持禁用。
+
+完整操作和 Windows 验收标准见
+[`docs/prds/automatic-threshold-optimization-v0.2-prd.md`](docs/prds/automatic-threshold-optimization-v0.2-prd.md)。
 
 `--live-zlg` 工作区在顶部提供设备类型、索引、通道、仲裁域/数据域波特率、终端电阻和
 library 路径配置。设备连接后保持在线；点击“实时保存”会为一台手机的一轮完整测试连续
@@ -113,6 +129,7 @@ packaging\windows\build.ps1 `
 ```text
 src/ble_calibration/
   analysis/     距离、优良差及 8 方向 What-if 重算
+  optimization/ 自动阈值约束、方向分块搜索、评分及策略回退
   app/          应用入口和后续 UI 组合
   can/          共用 CAN 协议及后续数据源
   capture/      独立采集线程和生命周期

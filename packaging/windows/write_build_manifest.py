@@ -112,6 +112,8 @@ def build_manifest(
             "source-ui.json",
             "manual-workflow.json",
             "live-workflow.json",
+            "optimization-workflow.json",
+            "optimization.png",
         )
     acceptance = {}
     for name in required_acceptance:
@@ -122,6 +124,7 @@ def build_manifest(
         "source-ui.json",
         "manual-workflow.json",
         "live-workflow.json",
+        "optimization-workflow.json",
         "zlg-bundle.json",
     )
     acceptance_results = {}

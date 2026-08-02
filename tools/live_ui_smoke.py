@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import tempfile
+import traceback
 from pathlib import Path
 from queue import Empty, Queue
 
@@ -103,6 +104,7 @@ def main() -> int:
 
     def fail(error: BaseException) -> None:
         outcome["error"] = f"{type(error).__name__}: {error}"
+        outcome["traceback"] = traceback.format_exc()
         print(json.dumps(outcome, ensure_ascii=False, indent=2))
         window._dirty = False
         window.close_for_automation()

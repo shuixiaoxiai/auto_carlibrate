@@ -55,6 +55,7 @@ class ParameterPanel(QFrame):
     encode_requested = Signal()
     restore_requested = Signal()
     hide_requested = Signal()
+    optimization_requested = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -77,6 +78,10 @@ class ParameterPanel(QFrame):
         self.mode_label.setObjectName("mutedLabel")
         header.addWidget(self.mode_label)
         header.addStretch()
+        self.optimize_button = QPushButton("自动优化")
+        self.optimize_button.setObjectName("primaryButton")
+        self.optimize_button.clicked.connect(self.optimization_requested.emit)
+        header.addWidget(self.optimize_button)
         self.restore_button = QPushButton("一键还原")
         self.restore_button.clicked.connect(self.restore_requested.emit)
         header.addWidget(self.restore_button)
@@ -337,3 +342,7 @@ class ParameterPanel(QFrame):
         self.codec_status.setStyleSheet(
             "color: #ff6b78;" if error else "color: #58d68d;"
         )
+
+    def set_optimization_available(self, available: bool, detail: str = "") -> None:
+        self.optimize_button.setEnabled(available)
+        self.optimize_button.setToolTip(detail)

@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Callable, Dict, Optional, Tuple
 from uuid import uuid4
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QThread, QTimer
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -30,6 +30,12 @@ from ..can.recording import RotatingBlfRecorder
 from ..can.source import CanSource, SourceState, SourceStatus
 from ..config import CanSettings
 from ..domain import Direction, DirectionStatus
+from ..optimization import (
+    OptimizationConfig,
+    OptimizationResult,
+    optimization_readiness,
+    strategy_updates,
+)
 from ..session import (
     ManualCaptureCoordinator,
     ManualCaptureSnapshot,
@@ -37,6 +43,7 @@ from ..session import (
 )
 from .device_panel import DevicePanel
 from .direction_chart import MEAN_VIEW, DirectionChartCard
+from .optimization_dialog import OptimizationDialog, OptimizationWorker
 from .parameter_panel import ParameterPanel
 from .project_dialog import ProjectPickerDialog
 from .project_workspace import ProjectWorkspace
@@ -69,6 +76,10 @@ class CalibrationMainWindow(QMainWindow):
         self.workspace = workspace
         self._dirty = workspace is not None and not workspace.persisted
         self._automated_exit = False
+        self._optimization_dialog: Optional[OptimizationDialog] = None
+        self._optimization_thread: Optional[QThread] = None
+        self._optimization_worker: Optional[OptimizationWorker] = None
+        self._optimization_snapshot = None
         source_count = sum(
             factory is not None
             for factory in (source_factory, live_source_factory)
@@ -206,6 +217,9 @@ class CalibrationMainWindow(QMainWindow):
         self.parameter_panel.decode_requested.connect(self._decode_cloud)
         self.parameter_panel.encode_requested.connect(self._encode_cloud)
         self.parameter_panel.restore_requested.connect(self._restore_parameters)
+        self.parameter_panel.optimization_requested.connect(
+            self._show_automatic_optimization
+        )
         self.parameter_panel.hide_requested.connect(
             lambda: self.set_parameters_visible(False)
         )
@@ -458,6 +472,179 @@ class CalibrationMainWindow(QMainWindow):
         self._refresh_result("参数、8 方向图和统计已还原")
         self._mark_dirty()
 
+    def _show_automatic_optimization(self) -> None:
+        if self._optimization_dialog is not None:
+            self._optimization_dialog.show()
+            self._optimization_dialog.raise_()
+            self._optimization_dialog.activateWindow()
+            return
+        config = OptimizationConfig()
+        readiness = optimization_readiness(
+            self.state.current_document.parameters,
+            self.state.datasets,
+            config,
+        )
+        dialog = OptimizationDialog(
+            readiness,
+            self.state.result,
+            config,
+            self,
+        )
+        dialog.start_requested.connect(self._start_automatic_optimization)
+        dialog.cancel_requested.connect(self._cancel_automatic_optimization)
+        dialog.apply_requested.connect(self._apply_automatic_recommendation)
+        dialog.finished.connect(self._optimization_dialog_closed)
+        self._optimization_dialog = dialog
+        dialog.show()
+
+    def _start_automatic_optimization(self, allow_strategy_fallback: bool) -> None:
+        if self._optimization_thread is not None:
+            return
+        dialog = self._optimization_dialog
+        if dialog is None:
+            return
+        config = OptimizationConfig(
+            allow_strategy_fallback=allow_strategy_fallback,
+        )
+        self._optimization_snapshot = self._optimization_input_signature()
+        thread = QThread(self)
+        worker = OptimizationWorker(
+            self.state.current_document.parameters,
+            tuple(self.state.datasets),
+            config,
+        )
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.progress.connect(dialog.update_progress)
+        worker.finished.connect(self._automatic_optimization_finished)
+        worker.failed.connect(self._automatic_optimization_failed)
+        worker.cancelled.connect(self._automatic_optimization_cancelled)
+        worker.finished.connect(thread.quit)
+        worker.failed.connect(thread.quit)
+        worker.cancelled.connect(thread.quit)
+        thread.finished.connect(worker.deleteLater)
+        thread.finished.connect(self._automatic_optimization_thread_finished)
+        thread.finished.connect(thread.deleteLater)
+        self._optimization_thread = thread
+        self._optimization_worker = worker
+        dialog.begin_progress()
+        self._refresh_optimization_availability()
+        thread.start()
+
+    def _cancel_automatic_optimization(self) -> None:
+        if self._optimization_worker is not None:
+            self._optimization_worker.request_cancel()
+
+    def _automatic_optimization_finished(
+        self,
+        result: OptimizationResult,
+    ) -> None:
+        if self._optimization_dialog is not None:
+            self._optimization_dialog.show_result(result)
+        self.statusBar().showMessage(
+            f"自动优化完成 · 评估 {result.evaluated_candidates} 组候选 · "
+            f"耗时 {result.elapsed_ms / 1000.0:.1f}s",
+            7000,
+        )
+
+    def _automatic_optimization_failed(self, message: str) -> None:
+        if self._optimization_dialog is not None:
+            self._optimization_dialog.show_error(message)
+        self.statusBar().showMessage(f"自动优化失败：{message}", 7000)
+
+    def _automatic_optimization_cancelled(self) -> None:
+        if self._optimization_dialog is not None:
+            self._optimization_dialog.show_cancelled()
+        self.statusBar().showMessage("自动优化已取消，参数未发生变化", 5000)
+
+    def _automatic_optimization_thread_finished(self) -> None:
+        self._optimization_thread = None
+        self._optimization_worker = None
+        if (
+            self._optimization_dialog is not None
+            and not self._optimization_dialog.isVisible()
+        ):
+            self._optimization_dialog = None
+        self._refresh_optimization_availability()
+
+    def _apply_automatic_recommendation(
+        self,
+        result: OptimizationResult,
+    ) -> None:
+        if not result.can_apply:
+            return
+        if self._optimization_snapshot != self._optimization_input_signature():
+            QMessageBox.warning(
+                self,
+                "优化结果已过期",
+                "优化期间参数或方向数据发生了变化，请重新运行自动优化。",
+            )
+            return
+        parameters = result.recommendation.parameters
+        try:
+            self.state.apply_updates(
+                unlock_thresholds=parameters.unlock_thresholds,
+                lock_thresholds=parameters.lock_thresholds,
+                mst_unlock=parameters.mst_unlock,
+                strategy_updates=strategy_updates(parameters),
+            )
+        except (CloudCodecError, ValueError) as error:
+            QMessageBox.critical(self, "无法应用自动推荐", str(error))
+            return
+        self.parameter_panel.set_document(self.state.current_document)
+        self.parameter_panel.show_codec_status(
+            "自动推荐已应用到 What-if；尚未写车，请检查后编码复制"
+        )
+        self._refresh_result("自动推荐已应用到 What-if，8 方向结果已同步重算")
+        self._mark_dirty()
+        if self._optimization_dialog is not None:
+            self._optimization_dialog.accept()
+
+    def _optimization_dialog_closed(self, _result: int) -> None:
+        if self._optimization_thread is not None:
+            self._cancel_automatic_optimization()
+            return
+        self._optimization_dialog = None
+
+    def _optimization_input_signature(self):
+        return (
+            self.state.current_document.encode_hex(),
+            tuple(
+                (
+                    dataset.record.recording_id,
+                    dataset.record.direction.value,
+                    dataset.record.group_index,
+                    len(dataset.samples),
+                    dataset.record.actual_lock_distance_m,
+                    dataset.record.actual_unlock_distance_m,
+                    dataset.record.walking_speed_mps,
+                    tuple(
+                        (event.event_type.value, event.timestamp)
+                        for event in dataset.record.vehicle_events
+                    ),
+                )
+                for dataset in self.state.datasets
+            ),
+        )
+
+    def _refresh_optimization_availability(self) -> None:
+        running = self._optimization_thread is not None
+        readiness = optimization_readiness(
+            self.state.current_document.parameters,
+            self.state.datasets,
+            OptimizationConfig(),
+        )
+        if running:
+            detail = "自动优化正在运行"
+        elif readiness.errors:
+            detail = "；".join(readiness.errors)
+        else:
+            detail = "使用全部完整原始方向组自动搜索安全参数"
+        self.parameter_panel.set_optimization_available(
+            readiness.can_start and not running,
+            detail,
+        )
+
     def _apply_parameter_edits(self) -> None:
         started = time.perf_counter()
         unlock, lock, mst_unlock, strategies = self.parameter_panel.values()
@@ -550,7 +737,7 @@ class CalibrationMainWindow(QMainWindow):
             ):
                 raise SessionStateError("请先连接 ZLG CAN 设备")
             raw_data_file = None
-            if self.workspace is not None and self.live_source_factory is None:
+            if self.workspace is not None:
                 recorder, raw_data_file = self.workspace.capture_target(
                     direction,
                     group_index,
@@ -926,6 +1113,7 @@ class CalibrationMainWindow(QMainWindow):
             using_original=self.state.using_original,
             encoded_hex=self.state.encoded_hex(),
         )
+        self._refresh_optimization_availability()
         if changed_direction is None:
             for direction in self.cards:
                 self._refresh_card_analysis(direction)
@@ -1025,6 +1213,14 @@ class CalibrationMainWindow(QMainWindow):
             if self.manual_capture is not None:
                 self.manual_capture.close()
             super().closeEvent(event)
+            return
+        if self._optimization_thread is not None:
+            QMessageBox.information(
+                self,
+                "正在自动优化",
+                "请先在自动优化窗口点击“取消优化”，等待任务安全停止。",
+            )
+            event.ignore()
             return
         if (
             self.manual_capture is not None
