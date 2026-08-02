@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Dict, Mapping, Optional, Sequence, Tuple, Union
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
@@ -20,9 +22,10 @@ from PySide6.QtWidgets import (
 )
 
 from ..analysis import GroupedRecomputeResult, RecomputeResult
-from ..cloud import CloudDocument
+from ..cloud import CloudDocument, CloudParameters
 from ..domain.enums import NODE_ORDER
 from .summary_panel import SummaryPanel
+from .strategy_status import StrategyActivation, strategy_statuses
 
 STRATEGY_ATTRIBUTES = (
     ("quickLock", "quick_lock"),
@@ -45,6 +48,7 @@ class ParameterPanel(QFrame):
         self._loading = False
         self.threshold_spins: Dict[str, Tuple[QSpinBox, ...]] = {}
         self.strategy_spins: Dict[str, Dict[str, QSpinBox]] = {}
+        self._strategy_tab_indices: Dict[str, int] = {}
         self._document: Optional[CloudDocument] = None
 
         root = QVBoxLayout(self)
@@ -81,6 +85,7 @@ class ParameterPanel(QFrame):
 
         self.strategy_tabs = QTabWidget()
         self.strategy_tabs.setFixedHeight(205)
+        self.strategy_tabs.setToolTip("绿色：已开启；灰色：未开启；橙色：配置无效")
         root.addWidget(self.strategy_tabs)
 
         cloud_group = QGroupBox("云推 HEX")
@@ -123,6 +128,7 @@ class ParameterPanel(QFrame):
             self.strategy_tabs.removeTab(0)
             widget.deleteLater()
         self.strategy_spins.clear()
+        self._strategy_tab_indices.clear()
 
     def set_document(self, document: CloudDocument) -> None:
         self._loading = True
@@ -146,7 +152,12 @@ class ParameterPanel(QFrame):
                 "mstUnlock",
                 parameters.mst_unlock,
             )
-            self.strategy_tabs.addTab(group, "主节点单独解锁 mstUnlock")
+            self._add_strategy_tab(
+                group,
+                "主节点单独解锁 mstUnlock",
+                "mstUnlock",
+                parameters,
+            )
         for external_name, attribute in STRATEGY_ATTRIBUTES:
             values = getattr(parameters, attribute)
             if values is not None:
@@ -154,9 +165,39 @@ class ParameterPanel(QFrame):
                     external_name,
                     values,
                 )
-                self.strategy_tabs.addTab(group, external_name)
+                self._add_strategy_tab(group, external_name, external_name, parameters)
         self.strategy_tabs.setVisible(self.strategy_tabs.count() > 0)
         self._loading = False
+
+    def _add_strategy_tab(
+        self,
+        group: QGroupBox,
+        title: str,
+        key: str,
+        parameters: CloudParameters,
+    ) -> None:
+        status = strategy_statuses(parameters)[key]
+        index = self.strategy_tabs.addTab(group, title)
+        self._strategy_tab_indices[key] = index
+        self.strategy_tabs.setTabIcon(index, self._status_icon(status.activation))
+        self.strategy_tabs.setTabToolTip(index, f"{title}：{status.label}；{status.detail}")
+
+    @staticmethod
+    def _status_icon(activation: StrategyActivation) -> QIcon:
+        colors = {
+            StrategyActivation.ENABLED: "#58d68d",
+            StrategyActivation.DISABLED: "#7f8c8d",
+            StrategyActivation.INVALID: "#f5a623",
+        }
+        pixmap = QPixmap(12, 12)
+        pixmap.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(colors[activation]))
+        painter.drawEllipse(2, 2, 8, 8)
+        painter.end()
+        return QIcon(pixmap)
 
     def _node_strategy_group(
         self,
@@ -206,7 +247,32 @@ class ParameterPanel(QFrame):
 
     def _notify_edit(self) -> None:
         if not self._loading:
+            self._refresh_strategy_tab_statuses()
             self.parameters_edited.emit()
+
+    def _refresh_strategy_tab_statuses(self) -> None:
+        if self._document is None:
+            return
+        unlock, lock, mst_unlock, strategies = self.values()
+        parameters = replace(
+            self._document.parameters,
+            unlock_thresholds=unlock,
+            lock_thresholds=lock,
+            mst_unlock=mst_unlock,
+            quick_lock=strategies.get("quickLock"),
+            quick_unlock=strategies.get("quickUnlock"),
+            mst_than_slave=strategies.get("mstThanSlave"),
+            bevel_angle=strategies.get("bevelAngle"),
+        )
+        for key, status in strategy_statuses(parameters).items():
+            index = self._strategy_tab_indices.get(key)
+            if index is None:
+                continue
+            self.strategy_tabs.setTabIcon(index, self._status_icon(status.activation))
+            self.strategy_tabs.setTabToolTip(
+                index,
+                f"{self.strategy_tabs.tabText(index)}：{status.label}；{status.detail}",
+            )
 
     def values(
         self,
