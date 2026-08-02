@@ -54,7 +54,7 @@ python -m unittest discover -s tests -v
 运行 Qt 端到端 UI 冒烟测试（支持离屏模式）：
 
 ```bash
-python tools/ui_smoke.py --max-refresh-ms 1000
+python tools/ui_smoke.py --max-core-ms 600 --max-refresh-ms 1000
 python tools/manual_ui_smoke.py --width 1100 --height 720
 python tools/live_ui_smoke.py --width 1100 --height 720
 ```

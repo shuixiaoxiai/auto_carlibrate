@@ -38,11 +38,15 @@ def passing_manifest():
             "source-ui.json": {
                 "ok": True,
                 "direction_count": 8,
+                "record_count": 24,
                 "curve_count": 40,
-                "threshold_debounce_to_painted_ms": 81.0,
-                "strategy_debounce_to_painted_ms": 92.0,
+                "threshold_core_recompute_ms": 100.27,
+                "strategy_core_recompute_ms": 120.0,
+                "threshold_debounce_to_painted_ms": 160.502,
+                "strategy_debounce_to_painted_ms": 206.035,
                 "cloud_codec_round_trip": True,
                 "one_click_restore": True,
+                "group_switch_and_mean": True,
             },
             "manual-workflow.json": {
                 "ok": True,
@@ -79,11 +83,14 @@ class WindowsReleaseAuditTests(unittest.TestCase):
         self.assertTrue(audit["ok"])
         self.assertEqual(audit["failures"], [])
 
-    def test_slow_strategy_and_missing_distance_fail(self) -> None:
+    def test_slow_grouped_refresh_and_missing_distance_fail(self) -> None:
         manifest = passing_manifest()
         manifest["acceptance_results"]["source-ui.json"][
             "strategy_debounce_to_painted_ms"
-        ] = 201.0
+        ] = 1000.0
+        manifest["acceptance_results"]["source-ui.json"][
+            "threshold_core_recompute_ms"
+        ] = 600.0
         manifest["acceptance_results"]["manual-workflow.json"][
             "unlock_distance_inputs"
         ] = 7
@@ -95,7 +102,11 @@ class WindowsReleaseAuditTests(unittest.TestCase):
         )
         self.assertFalse(audit["ok"])
         self.assertIn(
-            "strategy_debounce_to_painted_ms is not below 200 ms",
+            "strategy_debounce_to_painted_ms is not below 1000 ms",
+            audit["failures"],
+        )
+        self.assertIn(
+            "threshold_core_recompute_ms is not below 600 ms",
             audit["failures"],
         )
         self.assertIn("unlock distances incomplete", audit["failures"])

@@ -98,6 +98,7 @@ if (-not $SkipTests) {
     $env:QT_QPA_PLATFORM = "offscreen"
     Invoke-BuildPython -Arguments @(
         "tools\ui_smoke.py",
+        "--max-core-ms", "600",
         "--max-refresh-ms", "1000",
         "--report", "dist\acceptance\source-ui.json"
     )

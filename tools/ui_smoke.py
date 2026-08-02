@@ -32,6 +32,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--screenshot", type=Path)
     parser.add_argument("--report", type=Path)
+    parser.add_argument("--max-core-ms", type=float, default=600.0)
     parser.add_argument("--max-refresh-ms", type=float, default=1000.0)
     parser.add_argument("--width", type=int, default=1600)
     parser.add_argument("--height", type=int, default=1000)
@@ -39,34 +40,24 @@ def main() -> int:
 
     app = QApplication.instance() or QApplication([])
     state = build_generated_demo_state()
-    front = state.dataset_for(Direction.FRONT, 1)
-    right_front = state.dataset_for(Direction.FRONT_RIGHT, 1)
-    for group_index, recorded_at in (
-        (2, "2099-08-01T00:00:02+00:00"),
-        (3, "2099-08-01T00:00:03+00:00"),
-    ):
-        state.upsert_dataset(
-            DirectionDataset(
-                replace(
-                    front.record,
-                    group_index=group_index,
-                    recording_id=f"ui-front-{group_index}",
-                    recorded_at=recorded_at,
-                ),
-                front.samples,
+    first_groups = tuple(state.datasets)
+    for group_index in (2, 3):
+        for dataset in first_groups:
+            direction = dataset.record.direction
+            state.upsert_dataset(
+                DirectionDataset(
+                    replace(
+                        dataset.record,
+                        group_index=group_index,
+                        recording_id=f"ui-{direction.value}-{group_index}",
+                        recorded_at=(
+                            "2099-08-01T00:"
+                            f"{group_index:02d}:{direction.index:02d}+00:00"
+                        ),
+                    ),
+                    dataset.samples,
+                )
             )
-        )
-    state.upsert_dataset(
-        DirectionDataset(
-            replace(
-                right_front.record,
-                group_index=2,
-                recording_id="ui-right-front-2",
-                recorded_at="2099-08-01T00:00:04+00:00",
-            ),
-            right_front.samples,
-        )
-    )
     window = CalibrationMainWindow(state, "Qt 自动验收")
     window.resize(args.width, args.height)
     window.show()
@@ -76,16 +67,11 @@ def main() -> int:
         try:
             assert len(window.cards) == 8
             assert all(len(card._curves) == 5 for card in window.cards.values())
-            assert window.cards[Direction.FRONT].selected_view == 3
-            assert window.cards[Direction.FRONT_RIGHT].selected_view == 2
-            assert all(
-                window.cards[direction].selected_view == 1
-                for direction in Direction
-                if direction not in (Direction.FRONT, Direction.FRONT_RIGHT)
-            )
+            assert all(card.selected_view == 3 for card in window.cards.values())
             assert all(
                 button.isEnabled()
-                for button in window.cards[Direction.FRONT].group_buttons.values()
+                for card in window.cards.values()
+                for button in card.group_buttons.values()
             )
             assert all(card.mean_button.isEnabled() for card in window.cards.values())
             front_card = window.cards[Direction.FRONT]
@@ -98,11 +84,20 @@ def main() -> int:
             front_card.group_buttons[1].click()
             app.processEvents()
             assert front_card.selected_view == 1
-            assert window.cards[Direction.FRONT_RIGHT].selected_view == 2
+            right_front_card = window.cards[Direction.FRONT_RIGHT]
+            right_front_card.group_buttons[2].click()
+            app.processEvents()
+            assert front_card.selected_view == 1
+            assert right_front_card.selected_view == 2
+            assert all(
+                window.cards[direction].selected_view == 3
+                for direction in Direction
+                if direction not in (Direction.FRONT, Direction.FRONT_RIGHT)
+            )
             assert front_card.walking_speed.isEnabled()
             baseline = state.result
-            assert baseline.lock_summary.total == 11
-            assert baseline.unlock_summary.total == 11
+            assert baseline.lock_summary.total == 24
+            assert baseline.unlock_summary.total == 24
             original_hex = state.encoded_hex()
 
             blockers = [
@@ -121,17 +116,19 @@ def main() -> int:
             del blockers
 
             changed = state.result
+            threshold_core_ms = changed.elapsed_ms
+            assert threshold_core_ms < args.max_core_ms
             assert changed.lock_summary.excellent == 0
             assert changed.lock_summary.good == 0
-            assert changed.lock_summary.poor == 11
-            assert len(changed.lock_summary.untriggered_directions) == 11
+            assert changed.lock_summary.poor == 24
+            assert len(changed.lock_summary.untriggered_directions) == 24
             assert changed.unlock_summary.excellent == 0
             assert changed.unlock_summary.good == 0
-            assert changed.unlock_summary.poor == 11
-            assert len(changed.unlock_summary.untriggered_directions) == 11
+            assert changed.unlock_summary.poor == 24
+            assert len(changed.unlock_summary.untriggered_directions) == 24
             summary_panel = window.parameter_panel.summary_panel
-            assert summary_panel.lock_card.poor_label.text() == "差 11"
-            assert summary_panel.unlock_card.poor_label.text() == "差 11"
+            assert summary_panel.lock_card.poor_label.text() == "差 24"
+            assert summary_panel.unlock_card.poor_label.text() == "差 24"
             assert window.last_what_if_refresh_ms is not None
             assert visible_refresh_ms < args.max_refresh_ms
             threshold_refresh_ms = window.last_what_if_refresh_ms
@@ -166,11 +163,13 @@ def main() -> int:
             strategy_started = time.perf_counter()
             window._apply_parameter_edits()
             app.processEvents()
+            strategy_core_ms = state.result.elapsed_ms
             strategy_visible_ms = (
                 (time.perf_counter() - strategy_started) * 1000.0
                 + window.parameter_timer.interval()
             )
             del strategy_blocker
+            assert strategy_core_ms < args.max_core_ms
             assert strategy_visible_ms < args.max_refresh_ms
             assert len(state.result.directions) == 8
             strategy_hex = state.encoded_hex()
@@ -182,8 +181,8 @@ def main() -> int:
             )
             window._restore_parameters()
             assert state.encoded_hex() == original_hex
-            assert state.result.lock_summary.total == 11
-            assert state.result.unlock_summary.total == 11
+            assert state.result.lock_summary.total == 24
+            assert state.result.unlock_summary.total == 24
             outcome.update({
                 "ok": True,
                 "direction_count": len(window.cards),
@@ -193,6 +192,18 @@ def main() -> int:
                 ),
                 "core_and_widgets_ms": round(
                     threshold_refresh_ms,
+                    3,
+                ),
+                "threshold_core_recompute_ms": round(
+                    threshold_core_ms,
+                    3,
+                ),
+                "strategy_core_recompute_ms": round(
+                    strategy_core_ms,
+                    3,
+                ),
+                "max_core_recompute_ms": round(
+                    max(threshold_core_ms, strategy_core_ms),
                     3,
                 ),
                 "debounce_to_painted_ms": round(visible_refresh_ms, 3),

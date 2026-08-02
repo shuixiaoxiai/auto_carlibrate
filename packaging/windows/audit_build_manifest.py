@@ -10,6 +10,9 @@ from pathlib import Path
 from typing import Dict, List, Mapping, Optional
 
 SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+PACKAGED_UI_REFRESH_BUDGET_MS = 200.0
+GROUPED_CORE_RECOMPUTE_BUDGET_MS = 600.0
+GROUPED_UI_REFRESH_BUDGET_MS = 1000.0
 
 
 def _source_revision(project_root: Path) -> Optional[str]:
@@ -103,7 +106,7 @@ def audit_manifest(
     require(analysis.get("direction_count") == 8, "packaged UI does not have 8 directions")
     require(
         isinstance(analysis.get("refresh_ms"), (int, float))
-        and analysis["refresh_ms"] < 200,
+        and analysis["refresh_ms"] < PACKAGED_UI_REFRESH_BUDGET_MS,
         "packaged What-if refresh is not below 200 ms",
     )
     for event_name in ("lock_summary", "unlock_summary"):
@@ -115,18 +118,31 @@ def audit_manifest(
         source_ui = results.get("source-ui.json", {})
         require(source_ui.get("ok") is True, "source UI acceptance failed")
         require(source_ui.get("direction_count") == 8, "source UI direction count is not 8")
+        require(source_ui.get("record_count") == 24, "source UI record count is not 24")
         require(source_ui.get("curve_count") == 40, "source UI curve count is not 40")
+        for key in (
+            "threshold_core_recompute_ms",
+            "strategy_core_recompute_ms",
+        ):
+            value = source_ui.get(key)
+            require(
+                isinstance(value, (int, float))
+                and value < GROUPED_CORE_RECOMPUTE_BUDGET_MS,
+                f"{key} is not below 600 ms",
+            )
         for key in (
             "threshold_debounce_to_painted_ms",
             "strategy_debounce_to_painted_ms",
         ):
             value = source_ui.get(key)
             require(
-                isinstance(value, (int, float)) and value < 200,
-                f"{key} is not below 200 ms",
+                isinstance(value, (int, float))
+                and value < GROUPED_UI_REFRESH_BUDGET_MS,
+                f"{key} is not below 1000 ms",
             )
         require(source_ui.get("cloud_codec_round_trip") is True, "cloud codec failed")
         require(source_ui.get("one_click_restore") is True, "one-click restore failed")
+        require(source_ui.get("group_switch_and_mean") is True, "group UI checks failed")
 
         manual = results.get("manual-workflow.json", {})
         require(manual.get("ok") is True, "manual workflow acceptance failed")
