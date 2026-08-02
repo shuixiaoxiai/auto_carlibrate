@@ -61,10 +61,17 @@ class WindowsBuildScriptTests(unittest.TestCase):
 
     def test_windows_build_runs_automatic_optimization_acceptance(self) -> None:
         script = BUILD_SCRIPT.read_text(encoding="utf-8")
+        smoke = PROJECT_ROOT / "tools" / "optimization_ui_smoke.py"
+        window = (
+            PROJECT_ROOT / "src" / "ble_calibration" / "ui" / "main_window.py"
+        )
 
         self.assertIn("tools\\optimization_ui_smoke.py", script)
         self.assertIn("optimization-workflow.json", script)
         self.assertIn("optimization.png", script)
+        self.assertIn("GuiCallbackBridge(QObject)", smoke.read_text(encoding="utf-8"))
+        self.assertIn("QueuedConnection", smoke.read_text(encoding="utf-8"))
+        self.assertIn("Qt.ConnectionType.QueuedConnection", window.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

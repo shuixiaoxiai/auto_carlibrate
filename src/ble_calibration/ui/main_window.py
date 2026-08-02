@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Callable, Dict, Optional, Tuple
 from uuid import uuid4
 
-from PySide6.QtCore import QThread, QTimer
+from PySide6.QtCore import Qt, QThread, QTimer, Slot
 from PySide6.QtGui import QAction, QCloseEvent
 from PySide6.QtWidgets import (
     QApplication,
@@ -515,15 +515,30 @@ class CalibrationMainWindow(QMainWindow):
         )
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
-        worker.progress.connect(dialog.update_progress)
-        worker.finished.connect(self._automatic_optimization_finished)
-        worker.failed.connect(self._automatic_optimization_failed)
-        worker.cancelled.connect(self._automatic_optimization_cancelled)
+        worker.progress.connect(
+            dialog.update_progress,
+            Qt.ConnectionType.QueuedConnection,
+        )
+        worker.finished.connect(
+            self._automatic_optimization_finished,
+            Qt.ConnectionType.QueuedConnection,
+        )
+        worker.failed.connect(
+            self._automatic_optimization_failed,
+            Qt.ConnectionType.QueuedConnection,
+        )
+        worker.cancelled.connect(
+            self._automatic_optimization_cancelled,
+            Qt.ConnectionType.QueuedConnection,
+        )
         worker.finished.connect(thread.quit)
         worker.failed.connect(thread.quit)
         worker.cancelled.connect(thread.quit)
         thread.finished.connect(worker.deleteLater)
-        thread.finished.connect(self._automatic_optimization_thread_finished)
+        thread.finished.connect(
+            self._automatic_optimization_thread_finished,
+            Qt.ConnectionType.QueuedConnection,
+        )
         thread.finished.connect(thread.deleteLater)
         self._optimization_thread = thread
         self._optimization_worker = worker
@@ -535,6 +550,7 @@ class CalibrationMainWindow(QMainWindow):
         if self._optimization_worker is not None:
             self._optimization_worker.request_cancel()
 
+    @Slot(object)
     def _automatic_optimization_finished(
         self,
         result: OptimizationResult,
@@ -547,16 +563,19 @@ class CalibrationMainWindow(QMainWindow):
             7000,
         )
 
+    @Slot(str)
     def _automatic_optimization_failed(self, message: str) -> None:
         if self._optimization_dialog is not None:
             self._optimization_dialog.show_error(message)
         self.statusBar().showMessage(f"自动优化失败：{message}", 7000)
 
+    @Slot()
     def _automatic_optimization_cancelled(self) -> None:
         if self._optimization_dialog is not None:
             self._optimization_dialog.show_cancelled()
         self.statusBar().showMessage("自动优化已取消，参数未发生变化", 5000)
 
+    @Slot()
     def _automatic_optimization_thread_finished(self) -> None:
         self._optimization_thread = None
         self._optimization_worker = None

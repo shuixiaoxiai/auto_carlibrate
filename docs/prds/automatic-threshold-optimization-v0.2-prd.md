@@ -4,7 +4,7 @@
 
 版本：0.2
 
-实现版本：BLE Calibration 0.10.1
+实现版本：BLE Calibration 0.10.2
 
 ## 1. 用户目标
 

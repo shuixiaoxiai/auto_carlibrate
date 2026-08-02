@@ -16,11 +16,54 @@ SOURCE_ROOT = PROJECT_ROOT / "src"
 if str(SOURCE_ROOT) not in sys.path:
     sys.path.insert(0, str(SOURCE_ROOT))
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QObject, Qt, QThread, QTimer, Slot
 from PySide6.QtWidgets import QApplication
 
 from ble_calibration.ui.demo import build_generated_demo_state
 from ble_calibration.ui.main_window import CalibrationMainWindow
+
+
+class GuiCallbackBridge(QObject):
+    """Deliver worker notifications to the Qt GUI thread in every PySide build."""
+
+    def __init__(
+        self,
+        result_callback,
+        failure_callback,
+        cancelled_callback,
+        thread_finished_callback,
+        parent=None,
+    ) -> None:
+        super().__init__(parent)
+        self._result_callback = result_callback
+        self._failure_callback = failure_callback
+        self._cancelled_callback = cancelled_callback
+        self._thread_finished_callback = thread_finished_callback
+
+    def _dispatch(self, callback, *arguments) -> None:
+        try:
+            app = QApplication.instance()
+            if app is None or QThread.currentThread() is not app.thread():
+                raise RuntimeError("optimization smoke callback escaped the GUI thread")
+            callback(*arguments)
+        except BaseException as error:
+            self._failure_callback(error)
+
+    @Slot(object)
+    def result(self, value) -> None:
+        self._dispatch(self._result_callback, value)
+
+    @Slot(str)
+    def failed(self, message: str) -> None:
+        self._dispatch(self._failure_callback, RuntimeError(message))
+
+    @Slot()
+    def cancelled(self) -> None:
+        self._dispatch(self._cancelled_callback)
+
+    @Slot()
+    def thread_finished(self) -> None:
+        self._dispatch(self._thread_finished_callback)
 
 
 def main() -> int:
@@ -61,7 +104,6 @@ def main() -> int:
             if args.screenshot is not None:
                 args.screenshot.parent.mkdir(parents=True, exist_ok=True)
                 dialog.grab().save(str(args.screenshot))
-            window._apply_automatic_recommendation(result)
         except BaseException as error:
             fail(error)
 
@@ -69,6 +111,8 @@ def main() -> int:
         try:
             result = finished_result["value"]
             assert result is not None
+            assert window._optimization_thread is None
+            window._apply_automatic_recommendation(result)
             assert state.encoded_hex() != original_hex
             assert (
                 state.current_document.parameters.lock_thresholds
@@ -125,6 +169,14 @@ def main() -> int:
         window.close_for_automation()
         app.quit()
 
+    bridge = GuiCallbackBridge(
+        on_result,
+        fail,
+        lambda: fail(RuntimeError("optimizer unexpectedly cancelled")),
+        verify_after_thread,
+        window,
+    )
+
     def start() -> None:
         try:
             assert window.parameter_panel.optimize_button.isEnabled()
@@ -136,12 +188,22 @@ def main() -> int:
             worker = window._optimization_worker
             thread = window._optimization_thread
             assert worker is not None and thread is not None
-            worker.finished.connect(on_result)
-            worker.failed.connect(lambda message: fail(RuntimeError(message)))
-            worker.cancelled.connect(
-                lambda: fail(RuntimeError("optimizer unexpectedly cancelled"))
+            worker.finished.connect(
+                bridge.result,
+                Qt.ConnectionType.QueuedConnection,
             )
-            thread.finished.connect(verify_after_thread)
+            worker.failed.connect(
+                bridge.failed,
+                Qt.ConnectionType.QueuedConnection,
+            )
+            worker.cancelled.connect(
+                bridge.cancelled,
+                Qt.ConnectionType.QueuedConnection,
+            )
+            thread.finished.connect(
+                bridge.thread_finished,
+                Qt.ConnectionType.QueuedConnection,
+            )
         except BaseException as error:
             fail(error)
 

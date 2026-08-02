@@ -61,6 +61,8 @@ class OptimizationWorker(QObject):
         self.datasets = tuple(datasets)
         self.config = config
         self._cancelled = Event()
+        self._last_progress_evaluations = -1
+        self._last_progress_phase = ""
 
     def request_cancel(self) -> None:
         self._cancelled.set()
@@ -71,7 +73,7 @@ class OptimizationWorker(QObject):
             result = AutomaticThresholdOptimizer(self.config).optimize(
                 self.parameters,
                 self.datasets,
-                progress=self.progress.emit,
+                progress=self._report_progress,
                 cancel=self._cancelled.is_set,
             )
         except OptimizationCancelled:
@@ -80,6 +82,18 @@ class OptimizationWorker(QObject):
             self.failed.emit(f"{type(error).__name__}: {error}")
         else:
             self.finished.emit(result)
+
+    def _report_progress(self, progress: OptimizationProgress) -> None:
+        """Limit GUI wakeups while retaining meaningful phase progress."""
+        phase_changed = progress.phase != self._last_progress_phase
+        enough_new_work = (
+            progress.evaluated_candidates - self._last_progress_evaluations >= 20
+        )
+        if not phase_changed and not enough_new_work:
+            return
+        self._last_progress_phase = progress.phase
+        self._last_progress_evaluations = progress.evaluated_candidates
+        self.progress.emit(progress)
 
 
 class OptimizationDialog(QDialog):
