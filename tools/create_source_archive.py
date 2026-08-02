@@ -10,6 +10,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+EXCLUDED_PATHS = ("dist-local", "build", "custom.zip")
 
 
 def _git(*arguments: str) -> str:
@@ -48,7 +49,7 @@ def create_archive(output_dir: Path, revision: str = "HEAD") -> Path:
             full_revision,
             "--",
             ".",
-            ":(exclude)dist-local",
+            *(f":(exclude){path}" for path in EXCLUDED_PATHS),
         ],
         cwd=PROJECT_ROOT,
         check=True,
@@ -68,8 +69,15 @@ def create_archive(output_dir: Path, revision: str = "HEAD") -> Path:
                 f"archive revision {archived_revision!r} does not match "
                 f"Git revision {full_revision!r}"
             )
-        if any(name == "dist-local" or name.startswith("dist-local/") for name in archive.namelist()):
-            raise RuntimeError("source archive unexpectedly contains dist-local")
+        archived_names = archive.namelist()
+        for excluded in EXCLUDED_PATHS:
+            if any(
+                name == excluded or name.startswith(f"{excluded}/")
+                for name in archived_names
+            ):
+                raise RuntimeError(
+                    f"source archive unexpectedly contains {excluded}"
+                )
 
     print(f"Archive: {output}")
     print(f"Revision: {full_revision}")
