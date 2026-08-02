@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -32,6 +33,15 @@ class ReplayService:
     def load_frames(self, path: Path, capture_format: Optional[str] = None) -> List[CanFrame]:
         resolved = self._resolve_path(path)
         file_format = capture_format or resolved.suffix.lower().lstrip(".")
+        if file_format == "blf" and resolved.name == "manifest.json":
+            manifest = json.loads(resolved.read_text(encoding="utf-8"))
+            if manifest.get("format") != "blf":
+                raise ReplayError(f"unsupported capture manifest: {resolved}")
+            frames = []
+            for item in manifest.get("files", []):
+                frames.extend(self.load_frames(Path(str(item)), "blf"))
+            frames.sort(key=lambda frame: (frame.timestamp, frame.arbitration_id))
+            return frames
         if file_format == "jsonl":
             return load_can_jsonl(resolved)
         if file_format == "blf":

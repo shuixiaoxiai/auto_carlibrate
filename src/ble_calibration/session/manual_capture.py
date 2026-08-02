@@ -24,6 +24,8 @@ class ManualCaptureSnapshot:
     frame_count: int
     source_finished: bool
     error: Optional[str]
+    session_recording: bool
+    session_frame_count: int
 
 
 class ManualCaptureCoordinator:
@@ -39,6 +41,7 @@ class ManualCaptureCoordinator:
         self._source_status: Optional[SourceStatus] = None
         self._persistent_source = False
         self._direction_recorder: Optional[FrameRecorder] = None
+        self._session_recorder: Optional[FrameRecorder] = None
 
     @property
     def is_active(self) -> bool:
@@ -63,6 +66,27 @@ class ManualCaptureCoordinator:
     def uses_persistent_source(self) -> bool:
         with self._lock:
             return self._persistent_source
+
+    @property
+    def is_session_recording(self) -> bool:
+        """Whether a project-level raw CAN recording is in progress."""
+        with self._lock:
+            return self._session_recorder is not None
+
+    def start_session_recording(self, recorder: FrameRecorder) -> None:
+        """Record every live CAN frame independently of direction selection."""
+        with self._lock:
+            if not self.is_connected:
+                raise SessionStateError("connect the live CAN device first")
+            if self._session_recorder is not None:
+                raise SessionStateError("real-time saving is already active")
+            self._session_recorder = recorder
+
+    def stop_session_recording(self) -> None:
+        with self._lock:
+            if self.controller.active_record_snapshot() is not None:
+                raise SessionStateError("finish the active direction before ending real-time saving")
+            self._stop_session_recorder()
 
     def connect(self, source: CanSource) -> None:
         """Connect one live source and keep it open across direction records."""
@@ -99,6 +123,10 @@ class ManualCaptureCoordinator:
                 raise SessionStateError(
                     "finish the active direction before disconnecting"
                 )
+            if self._session_recorder is not None:
+                raise SessionStateError(
+                    "end real-time saving before disconnecting"
+                )
             worker = self._worker
         if worker is not None:
             worker.close()
@@ -107,6 +135,7 @@ class ManualCaptureCoordinator:
                 self._worker = None
             self._persistent_source = False
             self._stop_direction_recorder()
+            self._stop_session_recorder()
 
     def begin(
         self,
@@ -196,6 +225,8 @@ class ManualCaptureCoordinator:
 
     def _on_frame(self, frame) -> None:
         with self._lock:
+            if self._session_recorder is not None:
+                self._session_recorder.write(frame)
             if self.controller.active_record_snapshot() is None:
                 return
             if self._direction_recorder is not None:
@@ -262,6 +293,10 @@ class ManualCaptureCoordinator:
                     and not worker.is_alive
                 ),
                 error=error,
+                session_recording=self._session_recorder is not None,
+                session_frame_count=int(
+                    getattr(self._session_recorder, "total_frame_count", 0)
+                ),
             )
 
     def wait_source_finished(self, timeout: Optional[float] = None) -> bool:
@@ -275,10 +310,16 @@ class ManualCaptureCoordinator:
             worker.close()
         with self._lock:
             self._stop_direction_recorder()
+            self._stop_session_recorder()
             self._worker = None
             self._persistent_source = False
 
     def _stop_direction_recorder(self) -> None:
         recorder, self._direction_recorder = self._direction_recorder, None
+        if recorder is not None:
+            recorder.stop()
+
+    def _stop_session_recorder(self) -> None:
+        recorder, self._session_recorder = self._session_recorder, None
         if recorder is not None:
             recorder.stop()

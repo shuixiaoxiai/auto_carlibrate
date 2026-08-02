@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -46,6 +47,40 @@ class CalibrationUiStateTests(unittest.TestCase):
         self.assertIs(recorder, recorder_type.return_value)
         self.assertEqual(raw_path, str(expected_path))
         self.assertEqual(workspace.capture_format, "blf")
+
+    def test_realtime_blf_session_is_project_level_and_writes_manifest(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workspace = ProjectWorkspace.create(
+                Path(temp_dir) / "projects.sqlite3",
+                "实车项目",
+                capture_format="blf",
+                capture_channel=2,
+            )
+            with patch(
+                "ble_calibration.ui.project_workspace.RotatingBlfRecorder"
+            ) as recorder_type:
+                recorder = recorder_type.return_value
+                recording_path = (
+                    workspace.capture_directory / "sessions" / "phone-a" / "phone-a_20260801.blf"
+                )
+                recorder.paths = [recording_path]
+                recorder.total_frame_count = 42
+                returned_recorder, manifest_path = workspace.realtime_capture_target("phone-a")
+                saved_path = workspace.finalize_realtime_capture(
+                    returned_recorder,
+                    manifest_path,
+                    started_at="2026-08-01T12:00:00+00:00",
+                )
+
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+        recorder_type.assert_called_once_with(
+            workspace.capture_directory / "sessions" / "phone-a" / "phone-a",
+            channel=2,
+        )
+        self.assertEqual(saved_path, str(manifest_path.resolve()))
+        self.assertEqual(manifest["frame_count"], 42)
+        self.assertEqual(manifest["files"], [str(recording_path.resolve())])
 
     def test_parameter_update_recomputes_directions_and_summaries_together(self) -> None:
         state = build_generated_demo_state(seed=20260730)

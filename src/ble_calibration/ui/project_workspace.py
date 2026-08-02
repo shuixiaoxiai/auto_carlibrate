@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +36,7 @@ class ProjectWorkspace:
     vehicle_vin: Optional[str] = None
     capture_format: str = "jsonl"
     capture_channel: int = 0
+    capture_path: Optional[str] = None
     persisted: bool = False
 
     @classmethod
@@ -94,6 +96,48 @@ class ProjectWorkspace:
             return recorder, str(recorder.paths[0].resolve())
         raise ValueError(f"unsupported capture format: {self.capture_format}")
 
+    def realtime_capture_target(
+        self,
+        session_id: Optional[str] = None,
+    ) -> Tuple[RotatingBlfRecorder, Path]:
+        """Create one BLF recorder for an entire phone test session."""
+        if self.capture_format != "blf":
+            raise ValueError("real-time saving requires BLF capture format")
+        session_id = session_id or str(uuid4())
+        session_directory = self.capture_directory / "sessions" / session_id
+        recorder = RotatingBlfRecorder(
+            session_directory / session_id,
+            channel=self.capture_channel,
+        )
+        return recorder, session_directory / "manifest.json"
+
+    def finalize_realtime_capture(
+        self,
+        recorder: RotatingBlfRecorder,
+        manifest_path: Path,
+        *,
+        started_at: str,
+    ) -> str:
+        """Persist the complete BLF-volume list and make it the project capture."""
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text(
+            json.dumps(
+                {
+                    "format": "blf",
+                    "started_at": started_at,
+                    "ended_at": _utc_now(),
+                    "channel": self.capture_channel,
+                    "frame_count": recorder.total_frame_count,
+                    "files": [str(path.resolve()) for path in recorder.paths],
+                },
+                ensure_ascii=False,
+                indent=2,
+            ) + "\n",
+            encoding="utf-8",
+        )
+        self.capture_path = str(manifest_path.resolve())
+        return self.capture_path
+
     def to_stored_project(self, state: CalibrationUiState) -> StoredProject:
         project = CalibrationProject(
             project_id=self.project_id,
@@ -116,6 +160,7 @@ class ProjectWorkspace:
         return StoredProject(
             project=project,
             current_cloud_hex=state.current_document.encode_hex(),
+            capture_path=self.capture_path,
             capture_format=self.capture_format,
             vehicle_name=self.vehicle_name,
             vehicle_vin=self.vehicle_vin,
@@ -177,6 +222,7 @@ class ProjectWorkspace:
             vehicle_name=stored.vehicle_name,
             vehicle_vin=stored.vehicle_vin,
             capture_format=stored.capture_format or "jsonl",
+            capture_path=stored.capture_path,
             persisted=True,
         )
         return workspace, state

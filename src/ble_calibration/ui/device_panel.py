@@ -38,6 +38,8 @@ class DevicePanel(QFrame):
     connect_requested = Signal(object)
     disconnect_requested = Signal()
     settings_saved = Signal(object)
+    realtime_save_requested = Signal()
+    realtime_stop_requested = Signal()
 
     def __init__(
         self,
@@ -48,6 +50,7 @@ class DevicePanel(QFrame):
         self.setObjectName("directionCard")
         self._source_attached = False
         self._recording = False
+        self._session_recording = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(13, 10, 13, 10)
@@ -71,6 +74,13 @@ class DevicePanel(QFrame):
         self.connect_button.setObjectName("primaryButton")
         self.connect_button.clicked.connect(self._toggle_connection)
         header.addWidget(self.connect_button)
+        self.realtime_button = QPushButton("实时保存")
+        self.realtime_button.setObjectName("primaryButton")
+        self.realtime_button.clicked.connect(self._toggle_realtime_saving)
+        header.addWidget(self.realtime_button)
+        self.realtime_status_label = QLabel("未保存")
+        self.realtime_status_label.setObjectName("mutedLabel")
+        header.addWidget(self.realtime_status_label)
         root.addLayout(header)
 
         grid = QGridLayout()
@@ -193,6 +203,23 @@ class DevicePanel(QFrame):
         self._recording = recording
         self._update_editability()
 
+    def set_realtime_snapshot(self, recording: bool, frame_count: int) -> None:
+        self._session_recording = recording
+        self.realtime_button.setText("结束保存" if recording else "实时保存")
+        self.realtime_status_label.setText(
+            f"● 实时保存 {frame_count:,} 帧" if recording else "未保存"
+        )
+        self.realtime_status_label.setStyleSheet(
+            "color:#ff6b78;" if recording else ""
+        )
+        self._update_editability()
+
+    def _toggle_realtime_saving(self) -> None:
+        if self._session_recording:
+            self.realtime_stop_requested.emit()
+        else:
+            self.realtime_save_requested.emit()
+
     def _update_editability(self) -> None:
         editing_enabled = not self._source_attached and not self._recording
         for widget in (
@@ -207,4 +234,7 @@ class DevicePanel(QFrame):
             self.save_button,
         ):
             widget.setEnabled(editing_enabled)
-        self.connect_button.setEnabled(not self._recording)
+        self.connect_button.setEnabled(not self._recording and not self._session_recording)
+        self.realtime_button.setEnabled(
+            self._source_attached and not self._recording
+        )

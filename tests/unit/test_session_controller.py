@@ -273,6 +273,41 @@ class DirectionSessionControllerTests(unittest.TestCase):
         self.assertEqual(source.stop_count, 1)
         self.assertFalse(coordinator.is_connected)
 
+    def test_realtime_recorder_captures_idle_and_direction_frames(self) -> None:
+        coordinator = ManualCaptureCoordinator()
+        source = PushCanSource()
+        recorder = CountingRecorder()
+        coordinator.connect(source)
+        self.wait_until(lambda: coordinator.is_connected)
+        coordinator.start_session_recording(recorder)
+
+        item = self.manifest["directions"][0]
+        frames = self.frames_for_manifest_direction(item)
+        idle_frames = frames[:2]
+        source.push(idle_frames)
+        self.wait_until(lambda: len(recorder.frames) == len(idle_frames))
+
+        coordinator.begin_connected(Direction.from_label(item["name"]))
+        source.push(frames)
+        self.wait_until(
+            lambda: coordinator.snapshot().dataset is not None
+            and coordinator.snapshot().dataset.record.event(EventType.UNLOCK)
+            is not None
+        )
+        coordinator.finish(
+            lock_distance_m=item["lock_distance_m"],
+            unlock_distance_m=item["unlock_distance_m"],
+        )
+        source.push(idle_frames)
+        self.wait_until(
+            lambda: len(recorder.frames) == len(idle_frames) * 2 + len(frames)
+        )
+        coordinator.stop_session_recording()
+        coordinator.disconnect()
+
+        self.assertEqual(recorder.stop_count, 1)
+        self.assertFalse(coordinator.is_session_recording)
+
     def test_failed_live_connection_can_be_replaced_without_restart(self) -> None:
         coordinator = ManualCaptureCoordinator()
         coordinator.connect(FailingCanSource())

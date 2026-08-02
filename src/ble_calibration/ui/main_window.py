@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from typing import Callable, Dict, Optional, Tuple
 from uuid import uuid4
 
@@ -25,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..cloud import CloudCodecError
+from ..can.recording import RotatingBlfRecorder
 from ..can.source import CanSource, SourceState, SourceStatus
 from ..config import CanSettings
 from ..domain import Direction, DirectionStatus
@@ -84,6 +86,9 @@ class CalibrationMainWindow(QMainWindow):
         ] = None
         self._active_capture_group: Optional[int] = None
         self._active_recording_id: Optional[str] = None
+        self._realtime_recorder: Optional[RotatingBlfRecorder] = None
+        self._realtime_manifest_path = None
+        self._realtime_started_at: Optional[str] = None
 
         self.setWindowTitle(f"BLE Calibration · {project_name}")
         self.setMinimumSize(1100, 720)
@@ -226,6 +231,12 @@ class CalibrationMainWindow(QMainWindow):
             self.device_panel.settings_saved.connect(
                 self._save_can_settings
             )
+            self.device_panel.realtime_save_requested.connect(
+                self._start_realtime_saving
+            )
+            self.device_panel.realtime_stop_requested.connect(
+                self._stop_realtime_saving
+            )
             layout.addWidget(self.device_panel)
 
         self.recording_bar = RecordingBar()
@@ -346,6 +357,51 @@ class CalibrationMainWindow(QMainWindow):
         self.data_status.setText(
             f"● ZLG 未连接 · 已记录 {recorded}/24"
         )
+
+    def _start_realtime_saving(self) -> None:
+        if self.manual_capture is None or self.workspace is None:
+            return
+        recorder = None
+        try:
+            recorder, manifest_path = self.workspace.realtime_capture_target()
+            self.manual_capture.start_session_recording(recorder)
+        except (OSError, ValueError, RuntimeError, SessionStateError) as error:
+            if recorder is not None:
+                recorder.stop()
+            QMessageBox.warning(self, "无法开始实时保存", str(error))
+            return
+        self._realtime_recorder = recorder
+        self._realtime_manifest_path = manifest_path
+        self._realtime_started_at = datetime.now(timezone.utc).isoformat(
+            timespec="seconds"
+        )
+        self.statusBar().showMessage("已开始实时保存：将连续记录全部 CAN 帧", 5000)
+
+    def _stop_realtime_saving(self) -> None:
+        if (
+            self.manual_capture is None
+            or self.workspace is None
+            or self._realtime_recorder is None
+            or self._realtime_manifest_path is None
+            or self._realtime_started_at is None
+        ):
+            return
+        try:
+            self.manual_capture.stop_session_recording()
+            capture_path = self.workspace.finalize_realtime_capture(
+                self._realtime_recorder,
+                self._realtime_manifest_path,
+                started_at=self._realtime_started_at,
+            )
+        except (OSError, ValueError, RuntimeError, SessionStateError) as error:
+            QMessageBox.warning(self, "无法结束实时保存", str(error))
+            return
+        self._realtime_recorder = None
+        self._realtime_manifest_path = None
+        self._realtime_started_at = None
+        self._mark_dirty()
+        self._save_project()
+        self.statusBar().showMessage(f"实时保存已结束：{capture_path}", 7000)
 
     def _set_live_data_status(
         self,
@@ -494,7 +550,7 @@ class CalibrationMainWindow(QMainWindow):
             ):
                 raise SessionStateError("请先连接 ZLG CAN 设备")
             raw_data_file = None
-            if self.workspace is not None:
+            if self.workspace is not None and self.live_source_factory is None:
                 recorder, raw_data_file = self.workspace.capture_target(
                     direction,
                     group_index,
@@ -625,6 +681,10 @@ class CalibrationMainWindow(QMainWindow):
                 source_attached=source_attached,
             )
             self.device_panel.set_recording(self.manual_capture.is_active)
+            self.device_panel.set_realtime_snapshot(
+                snapshot.session_recording,
+                snapshot.session_frame_count,
+            )
             self.recording_bar.set_source_ready(
                 self.manual_capture.is_connected
             )
@@ -759,6 +819,9 @@ class CalibrationMainWindow(QMainWindow):
     def _new_project(self) -> None:
         if self.workspace is None:
             return
+        if self.manual_capture is not None and self.manual_capture.is_session_recording:
+            QMessageBox.information(self, "正在实时保存", "请先点击“结束保存”。")
+            return
         if self.manual_capture is not None and self.manual_capture.is_active:
             QMessageBox.information(self, "正在记录", "请先手动结束当前方向。")
             return
@@ -784,6 +847,9 @@ class CalibrationMainWindow(QMainWindow):
 
     def _open_project(self) -> None:
         if self.workspace is None:
+            return
+        if self.manual_capture is not None and self.manual_capture.is_session_recording:
+            QMessageBox.information(self, "正在实时保存", "请先点击“结束保存”。")
             return
         if self.manual_capture is not None and self.manual_capture.is_active:
             QMessageBox.information(self, "正在记录", "请先手动结束当前方向。")
@@ -959,6 +1025,13 @@ class CalibrationMainWindow(QMainWindow):
             if self.manual_capture is not None:
                 self.manual_capture.close()
             super().closeEvent(event)
+            return
+        if (
+            self.manual_capture is not None
+            and self.manual_capture.is_session_recording
+        ):
+            QMessageBox.information(self, "正在实时保存", "请先点击“结束保存”。")
+            event.ignore()
             return
         if self.manual_capture is not None and self.manual_capture.is_active:
             choice = QMessageBox.warning(
