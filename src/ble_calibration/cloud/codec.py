@@ -66,6 +66,12 @@ class CloudDocument:
 
     def encode_hex(self, parameters: Optional[CloudParameters] = None) -> str:
         target = self.parameters if parameters is None else parameters
+        additions = self._missing_strategy_payloads(target)
+        if additions:
+            expanded = decode_cloud(
+                self._append_strategy_payloads(additions).hex()
+            )
+            return expanded.encode_hex(target)
         output = bytearray(self.raw)
         self._write_signed_list(
             output,
@@ -104,12 +110,9 @@ class CloudDocument:
                 lock_thresholds=_node_thresholds(lock_thresholds),
             )
         if mst_unlock is not None:
-            if parameters.mst_unlock is None:
-                raise CloudCodecError("mstUnlock is not present in the source HEX")
-            parameters = replace(
-                parameters,
-                mst_unlock=_node_thresholds(mst_unlock),
-            )
+            updated_mst_unlock = _node_thresholds(mst_unlock)
+            if parameters.mst_unlock is not None or any(updated_mst_unlock):
+                parameters = replace(parameters, mst_unlock=updated_mst_unlock)
 
         field_to_attribute = {
             "quickLock": "quick_lock",
@@ -124,16 +127,79 @@ class CloudDocument:
                 raise CloudCodecError(f"unknown strategy: {field_name}") from error
             current = getattr(parameters, attribute)
             if current is None:
-                raise CloudCodecError(f"{field_name} is not present in the source HEX")
-            merged = dict(current)
+                merged = _empty_strategy_values(field_name)
+            else:
+                merged = dict(current)
             for key, value in updates.items():
                 if key not in merged:
                     raise CloudCodecError(f"unknown field: {field_name}.{key}")
                 _validate_nibble(f"{field_name}.{key}", value)
                 merged[key] = value
-            parameters = replace(parameters, **{attribute: merged})
+            if current is not None or any(merged.values()):
+                parameters = replace(parameters, **{attribute: merged})
 
         return decode_cloud(self.encode_hex(parameters))
+
+    def _missing_strategy_payloads(
+        self,
+        target: CloudParameters,
+    ) -> Mapping[Tuple[int, int], bytes]:
+        payloads: Dict[Tuple[int, int], bytes] = {}
+        if target.mst_unlock is not None and "mst_unlock" not in self._byte_fields:
+            payloads[(0, 1)] = bytes(
+                _encode_signed_byte("mst_unlock", value)
+                for value in target.mst_unlock
+            )
+        for attribute, parent_tag, child_tag, fields in (
+            ("quick_lock", 0, 3, QUICK_LOCK_FIELDS),
+            ("quick_unlock", 0, 4, QUICK_UNLOCK_FIELDS),
+            ("mst_than_slave", 0, 5, MST_THAN_SLAVE_FIELDS),
+            ("bevel_angle", 1, 3, BEVEL_ANGLE_FIELDS),
+        ):
+            values = getattr(target, attribute)
+            if values is not None and attribute not in self._nibble_fields:
+                payloads[(parent_tag, child_tag)] = _pack_nibbles(values, fields)
+        return payloads
+
+    def _append_strategy_payloads(
+        self,
+        payloads: Mapping[Tuple[int, int], bytes],
+    ) -> bytes:
+        """Append missing strategy children without changing existing TLV bytes."""
+        data = self.raw
+        outer_index = BASE_LEN + 1
+        if outer_index == len(data):
+            outer_length = 0
+            outer_start = outer_end = outer_index
+        else:
+            if outer_index + 2 > len(data) or data[outer_index] != 0:
+                raise CloudCodecError("cannot add strategy: cloud strategy TLV is unsupported")
+            outer_length = data[outer_index + 1]
+            outer_start = outer_index + 2
+            outer_end = outer_start + outer_length
+            if outer_end > len(data):
+                raise CloudCodecError("outer TLV length exceeds cloud data")
+
+        additions_by_parent: Dict[int, bytearray] = {}
+        for (parent_tag, child_tag), payload in payloads.items():
+            child = bytes([(len(payload) << 3) | child_tag]) + payload
+            additions_by_parent.setdefault(parent_tag, bytearray()).extend(child)
+        appended_parents = bytearray()
+        for parent_tag, children in additions_by_parent.items():
+            while children:
+                chunk = children[:31]
+                del children[:31]
+                appended_parents.extend(bytes([(len(chunk) << 3) | parent_tag]))
+                appended_parents.extend(chunk)
+        new_outer_length = outer_length + len(appended_parents)
+        if new_outer_length > 0xFF:
+            raise CloudCodecError("cannot add strategy: outer TLV would exceed 255 bytes")
+        output = bytearray(data[:outer_index])
+        output.extend((0, new_outer_length))
+        output.extend(data[outer_start:outer_end])
+        output.extend(appended_parents)
+        output.extend(data[outer_end:])
+        return bytes(output)
 
     def _write_signed_list(
         self,
@@ -216,6 +282,34 @@ def _encode_signed_byte(name: str, value: int) -> int:
 def _validate_nibble(name: str, value: int) -> None:
     if not isinstance(value, int) or not 0 <= value <= 0x0F:
         raise CloudCodecError(f"{name} must be between 0 and 15")
+
+
+def _empty_strategy_values(field_name: str) -> Dict[str, int]:
+    fields = {
+        "quickLock": QUICK_LOCK_FIELDS,
+        "quickUnlock": QUICK_UNLOCK_FIELDS,
+        "mstThanSlave": MST_THAN_SLAVE_FIELDS,
+        "bevelAngle": BEVEL_ANGLE_FIELDS,
+    }
+    try:
+        return {field: 0 for field in fields[field_name]}
+    except KeyError as error:
+        raise CloudCodecError(f"unknown strategy: {field_name}") from error
+
+
+def _pack_nibbles(values: Mapping[str, int], fields: Sequence[str]) -> bytes:
+    encoded = []
+    for index in range(0, len(fields), 2):
+        high_name = fields[index]
+        high = values.get(high_name, 0)
+        _validate_nibble(high_name, high)
+        low = 0
+        if index + 1 < len(fields):
+            low_name = fields[index + 1]
+            low = values.get(low_name, 0)
+            _validate_nibble(low_name, low)
+        encoded.append((high << 4) | low)
+    return bytes(encoded)
 
 
 def _nibble_values(

@@ -33,6 +33,20 @@ STRATEGY_ATTRIBUTES = (
     ("mstThanSlave", "mst_than_slave"),
     ("bevelAngle", "bevel_angle"),
 )
+STRATEGY_DEFAULTS = {
+    "quickLock": (
+        "weakFront", "weakRear", "weakFl", "weakFr", "strongMst", "strongFront",
+        "strongRear", "strongFl", "strongFr", "reserve",
+    ),
+    "quickUnlock": (
+        "unlockTime", "frontToFr", "frontToFl", "rearToFl", "rearToFr", "reserve",
+    ),
+    "mstThanSlave": ("diff", "reserve"),
+    "bevelAngle": (
+        "offsetRFR", "offsetRFF", "offsetLFL", "offsetLFF", "offsetLBL", "offsetLBB",
+        "offsetRBR", "offsetRBB",
+    ),
+}
 
 
 class ParameterPanel(QFrame):
@@ -147,25 +161,24 @@ class ParameterPanel(QFrame):
             spin.setValue(value)
 
         self._clear_strategy_controls()
-        if parameters.mst_unlock is not None:
-            group = self._node_strategy_group(
-                "mstUnlock",
-                parameters.mst_unlock,
-            )
-            self._add_strategy_tab(
-                group,
-                "主节点单独解锁 mstUnlock",
-                "mstUnlock",
-                parameters,
-            )
+        group = self._node_strategy_group(
+            "mstUnlock",
+            parameters.mst_unlock or (0, 0, 0, 0, 0),
+        )
+        self._add_strategy_tab(
+            group,
+            "主节点单独解锁 mstUnlock",
+            "mstUnlock",
+            parameters,
+        )
         for external_name, attribute in STRATEGY_ATTRIBUTES:
             values = getattr(parameters, attribute)
-            if values is not None:
-                group = self._mapping_strategy_group(
-                    external_name,
-                    values,
-                )
-                self._add_strategy_tab(group, external_name, external_name, parameters)
+            group = self._mapping_strategy_group(
+                external_name,
+                values
+                or {field: 0 for field in STRATEGY_DEFAULTS[external_name]},
+            )
+            self._add_strategy_tab(group, external_name, external_name, parameters)
         self.strategy_tabs.setVisible(self.strategy_tabs.count() > 0)
         self._loading = False
 

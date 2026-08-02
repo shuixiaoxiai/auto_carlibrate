@@ -50,12 +50,38 @@ class CloudCodecTests(unittest.TestCase):
         ]
         self.assertEqual(differences, [50])
 
-    def test_missing_strategy_cannot_be_inserted(self) -> None:
+    def test_missing_strategy_can_be_inserted(self) -> None:
         document = decode_cloud(SAMPLE_HEX[:72])
-        with self.assertRaises(CloudCodecError):
-            document.with_updates(
-                strategy_updates={"quickLock": {"weakFront": 2}}
-            )
+        updated = document.with_updates(
+            strategy_updates={"quickLock": {"weakFront": 2}}
+        )
+        self.assertEqual(updated.parameters.quick_lock["weakFront"], 2)
+        self.assertEqual(parse_cloud(updated.encode_hex())["quickLock"]["weakFront"], 2)
+
+    def test_zero_value_for_missing_strategy_does_not_change_hex(self) -> None:
+        document = decode_cloud(SAMPLE_HEX[:72])
+        updated = document.with_updates(
+            strategy_updates={"quickLock": {"weakFront": 0}}
+        )
+        self.assertEqual(updated.encode_hex(), document.encode_hex())
+
+    def test_all_missing_strategies_can_be_added(self) -> None:
+        document = decode_cloud(SAMPLE_HEX[:72])
+        updated = document.with_updates(
+            mst_unlock=(-70, 0, 0, 0, 0),
+            strategy_updates={
+                "quickLock": {"weakFront": 2, "strongMst": 1},
+                "quickUnlock": {"unlockTime": 2},
+                "mstThanSlave": {"diff": 3},
+                "bevelAngle": {"offsetRFR": 2},
+            },
+        )
+        parsed = parse_cloud(updated.encode_hex())
+        self.assertEqual(parsed["mstUnlock"][0], -70)
+        self.assertEqual(parsed["quickLock"]["weakFront"], 2)
+        self.assertEqual(parsed["quickUnlock"]["unlockTime"], 2)
+        self.assertEqual(parsed["mstThanSlave"]["diff"], 3)
+        self.assertEqual(parsed["bevelAngle"]["offsetRFR"], 2)
 
     def test_invalid_hex_and_values_are_rejected(self) -> None:
         with self.assertRaises(CloudCodecError):
